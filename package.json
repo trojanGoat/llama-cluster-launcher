@@ -1,0 +1,19 @@
+{
+  "name": "llama-cluster-launcher",
+  "version": "1.0.0",
+  "description": "GUI launcher for llama.cpp clustered inference (master + SSH slaves)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron . --no-sandbox",
+    "dev": "electron . --no-sandbox"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0",
+    "ssh2": "^1.15.0"
+  },
+  "devDependencies": {
+    "electron": "^29.0.0"
+  },
+  "author": "Jorge Razon",
+  "license": "MIT"
+}

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Llama Cluster Launcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Title bar drag region -->
+  <div class="titlebar">
+    <div class="titlebar-drag"></div>
+    <div class="titlebar-title">
+      <span class="titlebar-icon">🦙</span>
+      Llama Cluster Launcher
+    </div>
+    <div class="titlebar-drag"></div>
+  </div>
+
+  <div class="app-layout">
+
+    <!-- ══════════════════ MASTER PANEL ══════════════════ -->
+    <div class="panel master-panel" id="masterPanel">
+      <div class="panel-header">
+        <div class="panel-title-row">
+          <div class="status-orb" id="masterOrb"></div>
+          <h2 class="panel-title">Master Node</h2>
+          <span class="status-badge" id="masterStatusBadge">Stopped</span>
+        </div>
+        <p class="panel-subtitle">Runs locally — llama-server with model inference</p>
+      </div>
+
+      <div class="panel-body">
+
+        <!-- Binary path -->
+        <div class="form-section">
+          <h3 class="section-label">Binaries & Model</h3>
+          <div class="field-row">
+            <label class="field-label" for="masterBinPath">llama-server binary</label>
+            <div class="path-row">
+              <input type="text" id="masterBinPath" class="field-input mono" placeholder="/path/to/llama-server" />
+              <button class="btn-browse" id="masterBinBrowse" title="Browse">📂</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <label class="field-label" for="modelPath">Model file <span class="badge-gguf">.gguf</span></label>
+            <div class="path-row">
+              <input type="text" id="modelPath" class="field-input mono" placeholder="/path/to/model.gguf" />
+              <button class="btn-browse" id="modelBrowse" title="Browse model">📂</button>
+            </div>
+            <div class="model-chip" id="modelChip" style="display:none"></div>
+          </div>
+        </div>
+
+        <!-- Network -->
+        <div class="form-section">
+          <h3 class="section-label">Network</h3>
+          <div class="fields-grid">
+            <div class="field-row">
+              <label class="field-label" for="masterPort">
+                Port
+                <span class="help-tip" data-tip="The HTTP port llama-server listens on for API requests.">?</span>
+              </label>
+              <div class="port-row">
+                <input type="number" id="masterPort" class="field-input" value="8080" min="1024" max="65535" />
+                <span class="port-status" id="masterPortStatus" title="Port status"></span>
+              </div>
+            </div>
+            <div class="field-row">
+              <label class="field-label" for="masterHost">
+                Bind Host
+                <span class="help-tip" data-tip="Address to bind to. 0.0.0.0 accepts connections from any network interface.">?</span>
+              </label>
+              <input type="text" id="masterHost" class="field-input" value="0.0.0.0" />
+            </div>
+          </div>
+
+          <!-- RPC Slaves (auto-filled from slave list) -->
+          <div class="field-row">
+            <label class="field-label" for="rpcAddresses">
+              --rpc (slave addresses)
+              <span class="help-tip" data-tip="Comma-separated list of RPC slave addresses (host:port). Auto-populated from your slave nodes below.">?</span>
+            </label>
+            <input type="text" id="rpcAddresses" class="field-input mono" placeholder="Auto-filled from slave nodes…" readonly />
+          </div>
+        </div>
+
+        <!-- GPU & Context -->
+        <div class="form-section">
+          <h3 class="section-label">GPU & Context</h3>
+          <div class="fields-grid">
+            <div class="field-row">
+              <label class="field-label" for="ngl">
+                GPU Layers (-ngl)
+                <span class="help-tip" data-tip="Number of model layers to offload to GPU. 99 = offload everything possible. Lower values use more RAM.">?</span>
+              </label>
+              <div class="slider-row">
+                <input type="range" id="nglSlider" min="0" max="99" value="99" class="slider" />
+                <input type="number" id="ngl" class="field-input small" value="99" min="0" max="99" />
+              </div>
+            </div>
+            <div class="field-row">
+              <label class="field-label" for="contextSize">
+                Context Size (-c)
+                <span class="help-tip" data-tip="Maximum context window in tokens. Larger = more VRAM/RAM usage. 32768 is a good default for large models.">?</span>
+              </label>
+              <select id="contextSize" class="field-input field-select">
+                <option value="2048">2,048</option>
+                <option value="4096">4,096</option>
+                <option value="8192">8,192</option>
+                <option value="16384">16,384</option>
+                <option value="32768" selected>32,768</option>
+                <option value="65536">65,536</option>
+                <option value="131072">131,072</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label class="field-label" for="ctk">
+                KV Cache Key Type (-ctk)
+                <span class="help-tip" data-tip="Quantization type for KV cache keys. q8_0 is a great balance between quality and VRAM savings. f16 = full precision.">?</span>
+              </label>
+              <select id="ctk" class="field-input field-select">
+                <option value="f32">f32 — Full precision</option>
+                <option value="f16">f16 — Half precision</option>
+                <option value="q8_0" selected>q8_0 — 8-bit (recommended)</option>
+                <option value="q4_0">q4_0 — 4-bit</option>
+                <option value="q4_1">q4_1 — 4-bit alt</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label class="field-label" for="ctv">
+                KV Cache Value Type (-ctv)
+                <span class="help-tip" data-tip="Quantization type for KV cache values. q8_0 recommended. Higher precision = better quality but more VRAM.">?</span>
+              </label>
+              <select id="ctv" class="field-input field-select">
+                <option value="f32">f32 — Full precision</option>
+                <option value="f16">f16 — Half precision</option>
+                <option value="q8_0" selected>q8_0 — 8-bit (recommended)</option>
+                <option value="q4_0">q4_0 — 4-bit</option>
+                <option value="q4_1">q4_1 — 4-bit alt</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label class="field-label" for="nParallel">
+                Parallel Slots (-np)
+                <span class="help-tip" data-tip="Number of simultaneous inference requests. Use 1 for single-user / best performance. Higher = more RAM.">?</span>
+              </label>
+              <input type="number" id="nParallel" class="field-input" value="1" min="1" max="16" />
+            </div>
+            <div class="field-row">
+              <label class="field-label" for="flashAttn">
+                Flash Attention (--flash-attn)
+                <span class="help-tip" data-tip="Flash Attention reduces VRAM usage during inference by computing attention in tiles. 'auto' lets the model decide based on hardware support.">?</span>
+              </label>
+              <select id="flashAttn" class="field-input field-select">
+                <option value="auto">auto — default</option>
+                <option value="on">on — enable</option>
+                <option value="off">off — disable</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Additional flags -->
+        <div class="form-section">
+          <h3 class="section-label">Additional Flags</h3>
+          <div class="field-row">
+            <label class="field-label" for="masterExtraFlags">
+              Extra flags
+              <span class="help-tip" data-tip="Any additional llama-server flags appended verbatim to the command. Example: --flash-attn --threads 8">?</span>
+            </label>
+            <input type="text" id="masterExtraFlags" class="field-input mono" placeholder="e.g. --threads 8 --numa distribute" />
+          </div>
+        </div>
+
+        <!-- Command preview -->
+        <div class="form-section">
+          <div class="section-label-row">
+            <h3 class="section-label">Command Preview</h3>
+            <button class="btn-copy" id="masterCopyCmd" title="Copy command">⎘ Copy</button>
+          </div>
+          <div class="cmd-preview" id="masterCmdPreview"></div>
+        </div>
+
+        <!-- Launch button -->
+        <div class="launch-row">
+          <button class="btn-launch" id="masterLaunchBtn">
+            <span class="btn-launch-icon">▶</span>
+            Launch Master
+          </button>
+        </div>
+
+        <div class="terminal-container" id="masterTermContainer">
+          <div class="terminal-header">
+            <span class="terminal-title">Output</span>
+            <button class="btn-clear-term" id="masterClearTerm">Clear</button>
+          </div>
+          <div class="terminal" id="masterTerminal"></div>
+        </div>
+
+      </div><!-- /.panel-body -->
+
+      <div class="gpu-monitor" id="masterGpuMonitor" style="display:none">
+        <div class="gpu-stat-item">
+          <div class="gpu-dial-wrap">
+            <svg class="gpu-dial" viewBox="0 0 36 36">
+              <path class="dial-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+              <path class="dial-fill" id="masterGpuUtilFill" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            </svg>
+            <span class="dial-val" id="masterGpuUtilVal">0%</span>
+          </div>
+          <label class="gpu-stat-label">GPU Utilization</label>
+        </div>
+        <div class="gpu-stat-item">
+          <div class="gpu-dial-wrap">
+            <svg class="gpu-dial" viewBox="0 0 36 36">
+              <path class="dial-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+              <path class="dial-fill" id="masterGpuMemFill" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            </svg>
+            <span class="dial-val" id="masterGpuMemVal">0/0</span>
+          </div>
+          <label class="gpu-stat-label">VRAM Usage (MB)</label>
+        </div>
+        <div class="gpu-stat-item">
+          <div class="gpu-dial-wrap">
+            <svg class="gpu-dial" viewBox="0 0 36 36">
+              <path class="dial-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+              <path class="dial-fill" id="masterGpuPowerFill" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            </svg>
+            <span class="dial-val" id="masterGpuPowerVal">0W</span>
+          </div>
+          <label class="gpu-stat-label">Power Draw</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════ SLAVE PANEL ══════════════════ -->
+    <div class="panel slave-panel" id="slavePanel">
+      <div class="panel-header">
+        <div class="panel-title-row">
+          <h2 class="panel-title">Slave Nodes</h2>
+          <button class="btn-add-slave" id="addSlaveBtn">+ Add Node</button>
+        </div>
+        <p class="panel-subtitle">Remote machines — rpc-server launched via SSH</p>
+      </div>
+
+      <div class="panel-body">
+        <div class="slave-list" id="slaveList">
+          <!-- Slave cards injected by JS -->
+        </div>
+
+        <div class="slave-empty" id="slaveEmpty">
+          <div class="slave-empty-icon">🖥️</div>
+          <p>No slave nodes yet.</p>
+          <p class="slave-empty-sub">Click <strong>+ Add Node</strong> to configure a remote machine.</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /.app-layout -->
+
+  <!-- Tooltip -->
+  <div class="tooltip-popup" id="tooltipPopup"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

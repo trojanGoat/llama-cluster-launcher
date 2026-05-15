@@ -1,0 +1,312 @@
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const path = require('path');
+const { exec, spawn } = require('child_process');
+const { Client: SSHClient } = require('ssh2');
+const Store = require('electron-store');
+
+const store = new Store({
+  encryptionKey: 'llama-launcher-key-v1'
+});
+
+let mainWindow;
+// Track running processes: { master: ChildProcess|null, slaves: { [id]: SSHClient|null } }
+const runningProcesses = {
+  master: null,
+  slaves: {}
+};
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 1100,
+    minHeight: 700,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    },
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#111111',
+      symbolColor: '#888888',
+      height: 36
+    },
+    backgroundColor: '#111111',
+    show: false,
+    icon: path.join(__dirname, 'src', 'icon.png')
+  });
+
+  mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    // Kill master if running
+    if (runningProcesses.master) {
+      try { runningProcesses.master.kill('SIGTERM'); } catch (e) {}
+    }
+  });
+}
+
+app.whenReady().then(createWindow);
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+// ─── Cleanup on quit ─────────────────────────────────────────────────────────
+// Kills master process and sends SIGTERM to all remote rpc-server processes via SSH
+function cleanupAllProcesses() {
+  // Kill local master
+  if (runningProcesses.master) {
+    try { runningProcesses.master.kill('SIGTERM'); } catch (e) {}
+    runningProcesses.master = null;
+  }
+  // Kill remote slaves: close SSH streams (sends SIGHUP to remote process)
+  // Also attempt an explicit pkill for reliability
+  Object.entries(runningProcesses.slaves).forEach(([id, entry]) => {
+    if (!entry) return;
+    try {
+      // Try to send a kill to the remote rpc-server before closing
+      const killConn = new SSHClient();
+      const creds = entry.creds; // stored at launch time
+      if (creds) {
+        killConn.on('ready', () => {
+          killConn.exec('pkill -f rpc-server', () => { killConn.end(); });
+        }).on('error', () => {}).connect(creds);
+      }
+      entry.stream?.close();
+      entry.conn?.end();
+    } catch (e) {}
+  });
+  runningProcesses.slaves = {};
+}
+
+app.on('will-quit', () => {
+  cleanupAllProcesses();
+});
+
+// ─── Settings persistence ───────────────────────────────────────────────────
+ipcMain.handle('store:get', (_, key) => store.get(key));
+ipcMain.handle('store:set', (_, key, value) => store.set(key, value));
+ipcMain.handle('store:getAll', () => store.store);
+
+// ─── File dialog ─────────────────────────────────────────────────────────────
+ipcMain.handle('dialog:openFile', async (_, options) => {
+  const result = await dialog.showOpenDialog(mainWindow, options);
+  return result.canceled ? null : result.filePaths[0];
+});
+
+// ─── Port check (LOCAL) ──────────────────────────────────────────────────────
+// READ-ONLY — uses ss to check if a port is in use. Does NOT interact with any running services.
+ipcMain.handle('port:checkLocal', (_, port) => {
+  return new Promise((resolve) => {
+    exec(`ss -tlnp | grep ':${port} '`, (err, stdout) => {
+      resolve({ inUse: !!(stdout && stdout.trim().length > 0) });
+    });
+  });
+});
+
+// ─── Port check (REMOTE via SSH) ─────────────────────────────────────────────
+// READ-ONLY — connects via SSH and checks ss on remote machine.
+ipcMain.handle('port:checkRemote', (_, { host, port, username, password }) => {
+  return new Promise((resolve) => {
+    const conn = new SSHClient();
+    conn.on('ready', () => {
+      conn.exec(`ss -tlnp | grep ':${port} '`, (err, stream) => {
+        let output = '';
+        if (err) { conn.end(); return resolve({ inUse: false, error: err.message }); }
+        stream.on('data', (d) => { output += d.toString(); });
+        stream.stderr.on('data', () => {});
+        stream.on('close', () => {
+          conn.end();
+          resolve({ inUse: !!(output && output.trim().length > 0) });
+        });
+      });
+    }).on('error', (err) => {
+      resolve({ inUse: false, error: err.message });
+    }).connect({ host, port: 22, username, password, readyTimeout: 8000 });
+  });
+});
+
+// ─── Launch Master (LOCAL) ───────────────────────────────────────────────────
+ipcMain.handle('master:launch', (_, { command, cwd }) => {
+  if (runningProcesses.master) {
+    return { success: false, error: 'Master is already running.' };
+  }
+  try {
+    const args = command.split(/\s+/).filter(Boolean);
+    const bin = args.shift();
+    const proc = spawn(bin, args, { cwd: cwd || path.dirname(bin), shell: false });
+
+    runningProcesses.master = proc;
+
+    proc.stdout.on('data', (data) => {
+      mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stdout' });
+    });
+    proc.stderr.on('data', (data) => {
+      mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stderr' });
+    });
+    proc.on('close', (code) => {
+      runningProcesses.master = null;
+      mainWindow?.webContents.send('master:stopped', { code });
+    });
+    proc.on('error', (err) => {
+      runningProcesses.master = null;
+      mainWindow?.webContents.send('master:error', { message: err.message });
+    });
+
+    return { success: true, pid: proc.pid };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ─── Stop Master ─────────────────────────────────────────────────────────────
+ipcMain.handle('master:stop', () => {
+  if (runningProcesses.master) {
+    try {
+      runningProcesses.master.kill('SIGTERM');
+      runningProcesses.master = null;
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+  return { success: false, error: 'Not running' };
+});
+
+// ─── Launch Slave (REMOTE via SSH) ───────────────────────────────────────────
+// Uses 'bash -lc' so that ~ expands, PATH is loaded from the user's login shell,
+// and environment variables set in .bashrc / .profile are available.
+ipcMain.handle('slave:launch', (_, { slaveId, host, username, password, command }) => {
+  if (runningProcesses.slaves[slaveId]) {
+    return { success: false, error: 'Slave is already running.' };
+  }
+
+  // Escape single quotes in command for safe bash -lc wrapping
+  const safeCmd = command.replace(/'/g, "'\\''")
+  const shellWrapped = `bash -lc '${safeCmd}'`;
+
+  // Store SSH credentials so we can send a kill command on app-quit
+  const creds = { host, port: 22, username, password, readyTimeout: 10000 };
+
+  return new Promise((resolve) => {
+    const conn = new SSHClient();
+
+    conn.on('ready', () => {
+      conn.exec(shellWrapped, (err, stream) => {
+        if (err) {
+          conn.end();
+          delete runningProcesses.slaves[slaveId];
+          return resolve({ success: false, error: err.message });
+        }
+
+        runningProcesses.slaves[slaveId] = { conn, stream, creds };
+
+        stream.on('data', (data) => {
+          mainWindow?.webContents.send('slave:output', { slaveId, text: data.toString(), stream: 'stdout' });
+        });
+        stream.stderr.on('data', (data) => {
+          mainWindow?.webContents.send('slave:output', { slaveId, text: data.toString(), stream: 'stderr' });
+        });
+        stream.on('close', (code) => {
+          conn.end();
+          delete runningProcesses.slaves[slaveId];
+          mainWindow?.webContents.send('slave:stopped', { slaveId, code });
+        });
+
+        resolve({ success: true });
+      });
+    }).on('error', (err) => {
+      delete runningProcesses.slaves[slaveId];
+      resolve({ success: false, error: err.message });
+    }).connect(creds);
+  });
+});
+
+// ─── Stop Slave ──────────────────────────────────────────────────────────────
+ipcMain.handle('slave:stop', (_, { slaveId }) => {
+  const entry = runningProcesses.slaves[slaveId];
+  if (entry) {
+    try {
+      // Send explicit remote kill before closing the connection
+      const killConn = new SSHClient();
+      if (entry.creds) {
+        killConn.on('ready', () => {
+          killConn.exec('pkill -f rpc-server', () => { killConn.end(); });
+        }).on('error', () => {}).connect(entry.creds);
+      }
+      entry.stream?.close();
+      entry.conn?.end();
+      delete runningProcesses.slaves[slaveId];
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+  return { success: false, error: 'Slave not running' };
+});
+
+// ─── GPU Stats (LOCAL) ──────────────────────────────────────────────────────
+ipcMain.handle('gpu:getStatsLocal', () => {
+  return new Promise((resolve) => {
+    // utilization.gpu, memory.used, memory.total, power.draw
+    const query = 'utilization.gpu,memory.used,memory.total,power.draw';
+    exec(`nvidia-smi --query-gpu=${query} --format=csv,noheader,nounits`, (err, stdout) => {
+      if (err) return resolve({ success: false, error: err.message });
+      const parts = stdout.trim().split(',').map(s => s.trim());
+      if (parts.length < 4) return resolve({ success: false, error: 'Invalid output' });
+      resolve({
+        success: true,
+        util: parseInt(parts[0]),
+        memUsed: parseInt(parts[1]),
+        memTotal: parseInt(parts[2]),
+        power: parseFloat(parts[3])
+      });
+    });
+  });
+});
+
+// ─── GPU Stats (REMOTE via existing SSH) ─────────────────────────────────────
+ipcMain.handle('gpu:getStatsRemote', (_, { slaveId }) => {
+  const entry = runningProcesses.slaves[slaveId];
+  if (!entry || !entry.conn) return Promise.resolve({ success: false, error: 'Not connected' });
+
+  return new Promise((resolve) => {
+    const query = 'utilization.gpu,memory.used,memory.total,power.draw';
+    const cmd = `nvidia-smi --query-gpu=${query} --format=csv,noheader,nounits`;
+    
+    entry.conn.exec(cmd, (err, stream) => {
+      if (err) return resolve({ success: false, error: err.message });
+      let output = '';
+      stream.on('data', (d) => { output += d.toString(); });
+      stream.on('close', () => {
+        const parts = output.trim().split(',').map(s => s.trim());
+        if (parts.length < 4) return resolve({ success: false, error: 'Invalid output' });
+        resolve({
+          success: true,
+          util: parseInt(parts[0]),
+          memUsed: parseInt(parts[1]),
+          memTotal: parseInt(parts[2]),
+          power: parseFloat(parts[3])
+        });
+      });
+    });
+  });
+});
+
+// ─── SSH Test Connection ──────────────────────────────────────────────────────
+ipcMain.handle('ssh:test', (_, { host, username, password }) => {
+  return new Promise((resolve) => {
+    const conn = new SSHClient();
+    conn.on('ready', () => {
+      conn.end();
+      resolve({ success: true });
+    }).on('error', (err) => {
+      resolve({ success: false, error: err.message });
+    }).connect({ host, port: 22, username, password, readyTimeout: 8000 });
+  });
+});

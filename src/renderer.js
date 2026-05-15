@@ -1,0 +1,763 @@
+/* renderer.js — Llama Cluster Launcher UI logic */
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let slaves = [];           // Array of slave config objects
+let masterRunning = false;
+let slaveCounter = 0;
+
+// ─── Initialise ─────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadSettings();
+  setupMasterListeners();
+  setupMasterIPC();
+  setupSlaveIPC();
+  setupTooltips();
+  updateMasterPreview();
+  renderRpcField();
+});
+
+// ─── Persist helpers ─────────────────────────────────────────────────────────
+async function loadSettings() {
+  const saved = await window.api.storeGetAll();
+  if (!saved) return;
+
+  setIfExists('masterBinPath', saved.masterBinPath);
+  setIfExists('modelPath', saved.modelPath);
+  setIfExists('masterPort', saved.masterPort);
+  setIfExists('masterHost', saved.masterHost);
+  setIfExists('ngl', saved.ngl);
+  setIfExists('contextSize', saved.contextSize);
+  setIfExists('ctk', saved.ctk);
+  setIfExists('ctv', saved.ctv);
+  setIfExists('nParallel', saved.nParallel);
+  setIfExists('masterExtraFlags', saved.masterExtraFlags);
+  setIfExists('flashAttn', saved.flashAttn);
+
+  if (saved.modelPath) updateModelChip(saved.modelPath);
+  if (saved.ngl !== undefined) {
+    const nglSlider = document.getElementById('nglSlider');
+    if (nglSlider) nglSlider.value = saved.ngl;
+  }
+
+  // Load slaves
+  if (saved.slaves && Array.isArray(saved.slaves)) {
+    saved.slaves.forEach(cfg => addSlaveCard(cfg));
+  }
+}
+
+function setIfExists(id, value) {
+  if (value === undefined || value === null) return;
+  const el = document.getElementById(id);
+  if (el) el.value = value;
+}
+
+function saveSetting(key, value) {
+  window.api.storeSet(key, value);
+}
+
+function saveAllSlaves() {
+  const configs = slaves.map(s => s.config);
+  saveSetting('slaves', configs);
+}
+
+// ─── Master listeners ─────────────────────────────────────────────────────────
+function setupMasterListeners() {
+  const liveFields = [
+    'masterBinPath','modelPath','masterPort','masterHost',
+    'ngl','contextSize','ctk','ctv','nParallel','masterExtraFlags','flashAttn'
+  ];
+
+  liveFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      updateMasterPreview();
+      saveSetting(id, el.value);
+    });
+    el.addEventListener('change', () => {
+      updateMasterPreview();
+      saveSetting(id, el.value);
+    });
+  });
+
+  // NGL slider sync
+  const nglSlider = document.getElementById('nglSlider');
+  const nglInput  = document.getElementById('ngl');
+  nglSlider.addEventListener('input', () => {
+    nglInput.value = nglSlider.value;
+    updateMasterPreview();
+    saveSetting('ngl', nglSlider.value);
+  });
+  nglInput.addEventListener('input', () => {
+    const v = Math.min(99, Math.max(0, parseInt(nglInput.value) || 0));
+    nglSlider.value = v;
+    nglInput.value = v;
+    updateMasterPreview();
+    saveSetting('ngl', v);
+  });
+
+  // File browsers
+  document.getElementById('masterBinBrowse').addEventListener('click', async () => {
+    const file = await window.api.openFile({
+      title: 'Select llama-server binary',
+      properties: ['openFile'],
+      filters: [{ name: 'Executables', extensions: ['*'] }]
+    });
+    if (file) {
+      document.getElementById('masterBinPath').value = file;
+      saveSetting('masterBinPath', file);
+      updateMasterPreview();
+    }
+  });
+
+  document.getElementById('modelBrowse').addEventListener('click', async () => {
+    const file = await window.api.openFile({
+      title: 'Select model (.gguf)',
+      properties: ['openFile'],
+      filters: [{ name: 'GGUF models', extensions: ['gguf'] }]
+    });
+    if (file) {
+      document.getElementById('modelPath').value = file;
+      saveSetting('modelPath', file);
+      updateModelChip(file);
+      updateMasterPreview();
+    }
+  });
+
+  // Port check on blur — READ-ONLY, does not affect any running service
+  document.getElementById('masterPort').addEventListener('blur', async () => {
+    const port = parseInt(document.getElementById('masterPort').value);
+    if (!port) return;
+    const statusEl = document.getElementById('masterPortStatus');
+    statusEl.className = 'port-status checking';
+    const result = await window.api.checkPortLocal(port);
+    statusEl.className = `port-status ${result.inUse ? 'used' : 'free'}`;
+    statusEl.title = result.inUse ? `Port ${port} is already in use!` : `Port ${port} is available`;
+  });
+
+  // Copy command
+  document.getElementById('masterCopyCmd').addEventListener('click', async () => {
+    const text = document.getElementById('masterCmdPreview').textContent;
+    await navigator.clipboard.writeText(text);
+    const btn = document.getElementById('masterCopyCmd');
+    btn.textContent = '✓ Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '⎘ Copy'; btn.classList.remove('copied'); }, 1800);
+  });
+
+  // Clear terminal
+  document.getElementById('masterClearTerm').addEventListener('click', () => {
+    document.getElementById('masterTerminal').innerHTML = '';
+  });
+
+  // Launch / Stop
+  document.getElementById('masterLaunchBtn').addEventListener('click', handleMasterLaunch);
+}
+
+// ─── Master command preview ───────────────────────────────────────────────────
+function buildMasterCommand() {
+  const bin     = document.getElementById('masterBinPath').value.trim() || './llama-server';
+  const model   = document.getElementById('modelPath').value.trim();
+  const port    = document.getElementById('masterPort').value.trim();
+  const host    = document.getElementById('masterHost').value.trim();
+  const ngl     = document.getElementById('ngl').value.trim();
+  const ctx     = document.getElementById('contextSize').value;
+  const ctk     = document.getElementById('ctk').value;
+  const ctv     = document.getElementById('ctv').value;
+  const npar    = document.getElementById('nParallel').value.trim();
+  const extra   = document.getElementById('masterExtraFlags').value.trim();
+  const rpc     = document.getElementById('rpcAddresses').value.trim();
+  const flashAttn = document.getElementById('flashAttn').value;
+
+  let cmd = bin;
+  if (model)  cmd += ` -m ${model}`;
+  if (port)   cmd += ` --port ${port}`;
+  if (host)   cmd += ` --host ${host}`;
+  if (ngl)    cmd += ` -ngl ${ngl}`;
+  if (rpc)    cmd += ` --rpc ${rpc}`;
+  if (ctx)    cmd += ` -c ${ctx}`;
+  if (ctk)    cmd += ` -ctk ${ctk}`;
+  if (ctv)    cmd += ` -ctv ${ctv}`;
+  if (npar)   cmd += ` -np ${npar}`;
+  if (flashAttn) cmd += ` --flash-attn ${flashAttn}`;
+  if (extra)  cmd += ` ${extra}`;
+
+  return cmd;
+}
+
+function updateMasterPreview() {
+  document.getElementById('masterCmdPreview').textContent = buildMasterCommand();
+}
+
+function updateModelChip(filePath) {
+  const chip = document.getElementById('modelChip');
+  if (!filePath) { chip.style.display = 'none'; return; }
+  const name = filePath.split('/').pop();
+  chip.textContent = '🤖 ' + name;
+  chip.style.display = 'inline-flex';
+}
+
+// ─── Master launch/stop ───────────────────────────────────────────────────────
+async function handleMasterLaunch() {
+  const btn = document.getElementById('masterLaunchBtn');
+  const icon = btn.querySelector('.btn-launch-icon');
+
+  if (masterRunning) {
+    // Stop
+    const res = await window.api.stopMaster();
+    if (res.success) {
+      setMasterStatus('stopped');
+      logMaster('⏹ Master stopped.', 'system');
+    } else {
+      logMaster(`Error stopping: ${res.error}`, 'warn');
+    }
+    return;
+  }
+
+  // Port check before launch — read-only
+  const portEl = document.getElementById('masterPort');
+  const port = parseInt(portEl.value);
+  const portCheck = await window.api.checkPortLocal(port);
+  if (portCheck.inUse) {
+    logMaster(`❌ Port ${port} is already in use. Please choose a different port.`, 'warn');
+    document.getElementById('masterPortStatus').className = 'port-status used';
+    return;
+  }
+
+  const command = buildMasterCommand();
+  if (!command) { logMaster('No command to run.', 'warn'); return; }
+
+  setMasterStatus('starting');
+  logMaster(`▶ Launching: ${command}`, 'info');
+
+  const result = await window.api.launchMaster({ command });
+  if (result.success) {
+    masterRunning = true;
+    setMasterStatus('running');
+    logMaster(`✓ Master started (PID ${result.pid})`, 'success');
+  } else {
+    setMasterStatus('error');
+    logMaster(`❌ Failed to launch: ${result.error}`, 'stderr');
+  }
+}
+
+function setMasterStatus(status) {
+  const orb   = document.getElementById('masterOrb');
+  const badge = document.getElementById('masterStatusBadge');
+  const btn   = document.getElementById('masterLaunchBtn');
+  const icon  = btn.querySelector('.btn-launch-icon');
+
+  orb.className = `status-orb ${status === 'stopped' ? '' : status}`;
+  badge.className = `status-badge ${status === 'stopped' ? '' : status}`;
+
+  const labels = { stopped:'Stopped', starting:'Starting…', running:'Running', error:'Error' };
+  badge.textContent = labels[status] || status;
+
+  if (status === 'running') {
+    btn.classList.add('running');
+    icon.textContent = '■';
+    btn.querySelector('span:last-child') || (btn.lastChild.textContent = '');
+    btn.innerHTML = `<span class="btn-launch-icon">■</span> Stop Master`;
+    masterRunning = true;
+    document.getElementById('masterGpuMonitor').style.display = 'flex';
+  } else {
+    btn.classList.remove('running');
+    btn.innerHTML = `<span class="btn-launch-icon">▶</span> Launch Master`;
+    masterRunning = false;
+    document.getElementById('masterGpuMonitor').style.display = 'none';
+  }
+}
+
+// ─── Master IPC callbacks ─────────────────────────────────────────────────────
+function setupMasterIPC() {
+  window.api.onMasterOutput(({ text, stream }) => {
+    text.split('\n').forEach(line => {
+      if (!line) return;
+      const cls = stream === 'stderr' ? 'stderr' : detectLineClass(line);
+      logMaster(line, cls);
+    });
+  });
+
+  window.api.onMasterStopped(({ code }) => {
+    setMasterStatus('stopped');
+    logMaster(`⏹ Process exited (code ${code})`, 'system');
+  });
+
+  window.api.onMasterError(({ message }) => {
+    setMasterStatus('error');
+    logMaster(`❌ ${message}`, 'stderr');
+  });
+}
+
+function logMaster(text, cls = 'stdout') {
+  const term = document.getElementById('masterTerminal');
+  const line = document.createElement('p');
+  line.className = `term-line ${cls}`;
+  line.textContent = text;
+  term.appendChild(line);
+  term.scrollTop = term.scrollHeight;
+}
+
+// ─── Slave nodes ──────────────────────────────────────────────────────────────
+document.getElementById('addSlaveBtn').addEventListener('click', () => {
+  addSlaveCard();
+  document.getElementById('slaveEmpty').style.display = 'none';
+});
+
+function addSlaveCard(cfg = {}) {
+  const id = 'slave_' + (++slaveCounter);
+  const slaveState = {
+    id,
+    config: {
+      id,
+      label:    cfg.label    || `Node ${slaveCounter}`,
+      ip:       cfg.ip       || '',
+      username: cfg.username || '',
+      password: cfg.password || '',
+      binPath:  cfg.binPath  || '~/llama.cpp/build/bin/rpc-server',
+      port:     cfg.port     || '52396',
+      extraFlags: cfg.extraFlags || ''
+    },
+    running: false
+  };
+  slaves.push(slaveState);
+
+  const card = buildSlaveCard(slaveState);
+  document.getElementById('slaveList').appendChild(card);
+  document.getElementById('slaveEmpty').style.display = 'none';
+
+  renderRpcField();
+  saveAllSlaves();
+}
+
+function buildSlaveCard(state) {
+  const { id, config } = state;
+
+  const card = document.createElement('div');
+  card.className = 'slave-card';
+  card.id = `card_${id}`;
+
+  card.innerHTML = `
+    <div class="slave-card-header" id="header_${id}">
+      <div class="slave-header-top">
+        <div class="status-orb" id="orb_${id}"></div>
+        <input class="slave-label-input" id="label_${id}" type="text"
+          placeholder="Node name" value="${esc(config.label)}" />
+        <span class="collapse-arrow" id="arrow_${id}">▾</span>
+      </div>
+      <div class="slave-header-actions">
+        <span class="slave-status-text" id="statusText_${id}">Stopped</span>
+        <button class="btn-ssh-test" id="sshTest_${id}">Test SSH</button>
+        <button class="btn-slave-launch" id="launch_${id}">▶ Launch</button>
+        <button class="btn-slave-remove" id="remove_${id}" title="Remove node">✕</button>
+      </div>
+    </div>
+
+    <div class="slave-card-body">
+      <!-- SSH credentials -->
+      <div class="slave-fields-row">
+        <div class="slave-field-group">
+          <div class="slave-field-label">IP Address
+            <span class="help-tip" data-tip="The remote machine's IP. Also used as the -H argument for rpc-server (the address it listens on).">?</span>
+          </div>
+          <input type="text" id="ip_${id}" class="field-input mono" placeholder="192.168.8.2" value="${esc(config.ip)}" />
+        </div>
+        <div class="slave-field-group">
+          <div class="slave-field-label">SSH Username</div>
+          <input type="text" id="user_${id}" class="field-input" placeholder="ubuntu" value="${esc(config.username)}" />
+        </div>
+      </div>
+      <div class="slave-fields-row">
+        <div class="slave-field-group">
+          <div class="slave-field-label">SSH Password</div>
+          <input type="password" id="pass_${id}" class="field-input" placeholder="••••••••" value="${esc(config.password)}" autocomplete="new-password" />
+        </div>
+        <div class="slave-field-group">
+          <div class="slave-field-label">rpc-server path (remote)</div>
+          <input type="text" id="bin_${id}" class="field-input mono" placeholder="~/llama.cpp/build/bin/rpc-server" value="${esc(config.binPath)}" />
+        </div>
+      </div>
+      <!-- RPC config -->
+      <div class="slave-field-group">
+        <div class="slave-field-label">
+          RPC Port (-p)
+          <span class="help-tip" data-tip="Port rpc-server listens on. Must match the port in master's --rpc flag (e.g. 52396). Checked on the remote machine via SSH before launch.">?</span>
+        </div>
+        <div class="port-row">
+          <input type="number" id="port_${id}" class="field-input" value="${esc(config.port)}" min="1024" max="65535" />
+          <span class="port-status" id="portStatus_${id}" title="Remote port status"></span>
+        </div>
+      </div>
+      <!-- Extra flags -->
+      <div class="slave-field-group">
+        <div class="slave-field-label">Additional Flags</div>
+        <input type="text" id="extra_${id}" class="field-input mono" placeholder="e.g. --mem-base 0" value="${esc(config.extraFlags)}" />
+      </div>
+      <!-- Command preview -->
+      <div class="slave-cmd-row">
+        <div class="slave-cmd-preview" id="cmdPreview_${id}"></div>
+        <button class="btn-copy" id="copy_${id}" title="Copy command">⎘</button>
+      </div>
+      <!-- Terminal -->
+      <div class="slave-terminal-wrap">
+        <div class="terminal-header">
+          <span class="terminal-title">Output</span>
+          <button class="btn-clear-term" id="clearTerm_${id}">Clear</button>
+        </div>
+        <div class="slave-terminal" id="term_${id}"></div>
+      </div>
+    </div><!-- /.slave-card-body -->
+
+    <div class="gpu-monitor" id="gpuMonitor_${id}" style="display:none">
+      <div class="gpu-stat-item">
+        <div class="gpu-dial-wrap">
+          <svg class="gpu-dial" viewBox="0 0 36 36">
+            <path class="dial-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            <path class="dial-fill" id="gpuUtilFill_${id}" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+          </svg>
+          <span class="dial-val" id="gpuUtilVal_${id}">0%</span>
+        </div>
+        <label class="gpu-stat-label">Util</label>
+      </div>
+      <div class="gpu-stat-item">
+        <div class="gpu-dial-wrap">
+          <svg class="gpu-dial" viewBox="0 0 36 36">
+            <path class="dial-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            <path class="dial-fill" id="gpuMemFill_${id}" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+          </svg>
+          <span class="dial-val" id="gpuMemVal_${id}">0/0</span>
+        </div>
+        <label class="gpu-stat-label">VRAM</label>
+      </div>
+      <div class="gpu-stat-item">
+        <div class="gpu-dial-wrap">
+          <svg class="gpu-dial" viewBox="0 0 36 36">
+            <path class="dial-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            <path class="dial-fill" id="gpuPowerFill_${id}" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+          </svg>
+          <span class="dial-val" id="gpuPowerVal_${id}">0W</span>
+        </div>
+        <label class="gpu-stat-label">Power</label>
+      </div>
+    </div>
+  `;
+
+  // ── Wire up events ──
+  const liveInputs = ['ip','user','pass','bin','port','extra'];
+  liveInputs.forEach(field => {
+    const el = card.querySelector(`#${field}_${id}`);
+    if (!el) return;
+    el.addEventListener('input', () => { syncSlaveConfig(state, card); });
+    el.addEventListener('change', () => { syncSlaveConfig(state, card); });
+  });
+
+  // Label
+  card.querySelector(`#label_${id}`).addEventListener('input', (e) => {
+    state.config.label = e.target.value;
+    saveAllSlaves();
+  });
+
+  // Collapse header (click on top row only, not action buttons)
+  card.querySelector(`#header_${id}`).addEventListener('click', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+    if (e.target.closest('.slave-header-actions')) return;
+    card.classList.toggle('collapsed');
+  });
+
+  // Remove
+  card.querySelector(`#remove_${id}`).addEventListener('click', () => {
+    if (state.running) {
+      window.api.stopSlave({ slaveId: id });
+    }
+    card.remove();
+    slaves = slaves.filter(s => s.id !== id);
+    renderRpcField();
+    saveAllSlaves();
+    if (slaves.length === 0) document.getElementById('slaveEmpty').style.display = 'flex';
+  });
+
+  // SSH Test
+  card.querySelector(`#sshTest_${id}`).addEventListener('click', async () => {
+    const btn = card.querySelector(`#sshTest_${id}`);
+    const cfg = state.config;
+    btn.textContent = 'Testing…';
+    btn.className = 'btn-ssh-test';
+    const result = await window.api.testSSH({ host: cfg.ip, username: cfg.username, password: cfg.password });
+    if (result.success) {
+      btn.textContent = '✓ Connected';
+      btn.className = 'btn-ssh-test ok';
+      logSlave(id, '✓ SSH connection successful', 'success');
+    } else {
+      btn.textContent = '✗ Failed';
+      btn.className = 'btn-ssh-test fail';
+      logSlave(id, `✗ SSH failed: ${result.error}`, 'stderr');
+    }
+    setTimeout(() => { btn.textContent = 'Test SSH'; btn.className = 'btn-ssh-test'; }, 4000);
+  });
+
+  // Port check on blur
+  card.querySelector(`#port_${id}`).addEventListener('blur', async () => {
+    const cfg = state.config;
+    if (!cfg.ip || !cfg.username || !cfg.password) return;
+    const portStatus = card.querySelector(`#portStatus_${id}`);
+    portStatus.className = 'port-status checking';
+    const result = await window.api.checkPortRemote({
+      host: cfg.ip, port: cfg.port, username: cfg.username, password: cfg.password
+    });
+    portStatus.className = `port-status ${result.inUse ? 'used' : 'free'}`;
+    portStatus.title = result.inUse ? `Port ${cfg.port} is in use on remote!` : `Port ${cfg.port} is available`;
+    if (result.error) { portStatus.className = 'port-status'; portStatus.title = `SSH error: ${result.error}`; }
+  });
+
+  // Launch
+  card.querySelector(`#launch_${id}`).addEventListener('click', () => handleSlaveLaunch(state, card));
+
+  // Copy command
+  card.querySelector(`#copy_${id}`).addEventListener('click', async () => {
+    const text = card.querySelector(`#cmdPreview_${id}`).textContent;
+    await navigator.clipboard.writeText(text);
+    const btn = card.querySelector(`#copy_${id}`);
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '⎘'; btn.classList.remove('copied'); }, 1800);
+  });
+
+  // Clear terminal
+  card.querySelector(`#clearTerm_${id}`).addEventListener('click', () => {
+    card.querySelector(`#term_${id}`).innerHTML = '';
+  });
+
+  syncSlaveConfig(state, card);
+  return card;
+}
+
+function syncSlaveConfig(state, card) {
+  const id = state.id;
+  state.config.ip        = card.querySelector(`#ip_${id}`).value.trim();
+  state.config.username  = card.querySelector(`#user_${id}`).value.trim();
+  state.config.password  = card.querySelector(`#pass_${id}`).value;
+  state.config.binPath   = card.querySelector(`#bin_${id}`).value.trim();
+  state.config.port      = card.querySelector(`#port_${id}`).value.trim();
+  state.config.extraFlags= card.querySelector(`#extra_${id}`).value.trim();
+
+  // Update command preview
+  card.querySelector(`#cmdPreview_${id}`).textContent = buildSlaveCommand(state.config);
+
+  renderRpcField();
+  saveAllSlaves();
+}
+
+function buildSlaveCommand(cfg) {
+  let cmd = cfg.binPath || '~/llama.cpp/build/bin/rpc-server';
+  if (cfg.ip)   cmd += ` -H ${cfg.ip}`;   // -H = this machine's own IP, auto-derived from the IP field
+  if (cfg.port) cmd += ` -p ${cfg.port}`;
+  if (cfg.extraFlags) cmd += ` ${cfg.extraFlags}`;
+  return cmd;
+}
+
+// ─── Slave launch/stop ────────────────────────────────────────────────────────
+async function handleSlaveLaunch(state, card) {
+  const { id, config } = state;
+  const launchBtn = card.querySelector(`#launch_${id}`);
+
+  if (state.running) {
+    await window.api.stopSlave({ slaveId: id });
+    setSlaveStatus(state, card, 'stopped');
+    logSlave(id, '⏹ Slave stopped.', 'system');
+    return;
+  }
+
+  if (!config.ip || !config.username || !config.password) {
+    logSlave(id, '❌ Please fill in IP, username, and password.', 'warn');
+    return;
+  }
+
+  const command = buildSlaveCommand(config);
+  setSlaveStatus(state, card, 'starting');
+  logSlave(id, `▶ Connecting to ${config.username}@${config.ip} and running: ${command}`, 'info');
+
+  const result = await window.api.launchSlave({
+    slaveId: id,
+    host: config.ip,
+    username: config.username,
+    password: config.password,
+    command
+  });
+
+  if (result.success) {
+    state.running = true;
+    setSlaveStatus(state, card, 'running');
+    logSlave(id, `✓ rpc-server launched on ${config.ip}`, 'success');
+  } else {
+    setSlaveStatus(state, card, 'error');
+    logSlave(id, `❌ ${result.error}`, 'stderr');
+  }
+}
+
+function setSlaveStatus(state, card, status) {
+  const id = state.id;
+  const orb = card.querySelector(`#orb_${id}`);
+  const txt = card.querySelector(`#statusText_${id}`);
+  const btn = card.querySelector(`#launch_${id}`);
+  const monitor = card.querySelector(`#gpuMonitor_${id}`);
+
+  orb.className = `status-orb ${status === 'stopped' ? '' : status}`;
+  card.className = `slave-card ${status === 'stopped' ? '' : status}`;
+
+  const labels = { stopped:'Stopped', starting:'Connecting…', running:'Running', error:'Error' };
+  txt.textContent = labels[status] || status;
+
+  if (status === 'running') {
+    btn.className = 'btn-slave-launch running';
+    btn.textContent = '■ Stop';
+    state.running = true;
+    if (monitor) monitor.style.display = 'flex';
+  } else {
+    btn.className = 'btn-slave-launch';
+    btn.textContent = '▶ Launch';
+    state.running = false;
+    if (monitor) monitor.style.display = 'none';
+  }
+}
+
+// ─── Slave IPC callbacks ──────────────────────────────────────────────────────
+function setupSlaveIPC() {
+  window.api.onSlaveOutput(({ slaveId, text, stream }) => {
+    text.split('\n').forEach(line => {
+      if (!line) return;
+      const cls = stream === 'stderr' ? 'stderr' : detectLineClass(line);
+      logSlave(slaveId, line, cls);
+    });
+  });
+
+  window.api.onSlaveStopped(({ slaveId, code }) => {
+    const state = slaves.find(s => s.id === slaveId);
+    const card  = document.getElementById(`card_${slaveId}`);
+    if (state && card) setSlaveStatus(state, card, 'stopped');
+    logSlave(slaveId, `⏹ Process exited (code ${code})`, 'system');
+  });
+}
+
+function logSlave(slaveId, text, cls = 'stdout') {
+  const term = document.getElementById(`term_${slaveId}`);
+  if (!term) return;
+  const line = document.createElement('p');
+  line.className = `term-line ${cls}`;
+  line.textContent = text;
+  term.appendChild(line);
+  term.scrollTop = term.scrollHeight;
+}
+
+// ─── RPC field (auto-filled) ──────────────────────────────────────────────────
+function renderRpcField() {
+  const rpcEl = document.getElementById('rpcAddresses');
+  const addrs = slaves
+    .filter(s => s.config.ip && s.config.port)
+    .map(s => `${s.config.ip}:${s.config.port}`);
+  rpcEl.value = addrs.join(',');
+  updateMasterPreview();
+}
+
+// ─── GPU Stats Polling ────────────────────────────────────────────────────────
+let statsInterval = null;
+
+function startStatsPolling() {
+  if (statsInterval) clearInterval(statsInterval);
+  statsInterval = setInterval(async () => {
+    // Master
+    if (masterRunning) {
+      const stats = await window.api.gpuGetStatsLocal();
+      if (stats.success) updateGpuUI('master', stats);
+    }
+
+    // Slaves
+    for (const slave of slaves) {
+      if (slave.running) {
+        const stats = await window.api.gpuGetStatsRemote({ slaveId: slave.id });
+        if (stats.success) updateGpuUI(slave.id, stats);
+      }
+    }
+  }, 2500);
+}
+
+function updateGpuUI(id, stats) {
+  const isMaster = id === 'master';
+  const prefix = isMaster ? 'masterGpu' : 'gpu';
+  const suffix = isMaster ? '' : `_${id}`;
+
+  const utilFill  = document.getElementById(`${prefix}UtilFill${suffix}`);
+  const utilVal   = document.getElementById(`${prefix}UtilVal${suffix}`);
+  const memFill   = document.getElementById(`${prefix}MemFill${suffix}`);
+  const memVal    = document.getElementById(`${prefix}MemVal${suffix}`);
+  const powerFill = document.getElementById(`${prefix}PowerFill${suffix}`);
+  const powerVal  = document.getElementById(`${prefix}PowerVal${suffix}`);
+
+  if (utilFill && utilVal) {
+    const u = Math.min(100, Math.max(0, stats.util));
+    utilFill.setAttribute('stroke-dasharray', `${u}, 100`);
+    utilVal.textContent = `${u}%`;
+    utilFill.classList.toggle('warning', u > 70);
+    utilFill.classList.toggle('critical', u > 90);
+  }
+
+  if (memFill && memVal) {
+    const mPerc = Math.round((stats.memUsed / stats.memTotal) * 100) || 0;
+    memFill.setAttribute('stroke-dasharray', `${mPerc}, 100`);
+    // Show MB, but switch to GB if > 1024
+    const formatMem = (m) => m > 1024 ? `${(m/1024).toFixed(1)}G` : `${m}M`;
+    memVal.textContent = isMaster ? `${formatMem(stats.memUsed)}/${formatMem(stats.memTotal)}` : formatMem(stats.memUsed);
+
+    memFill.classList.toggle('warning', mPerc > 75);
+    memFill.classList.toggle('critical', mPerc > 92);
+  }
+
+  if (powerFill && powerVal) {
+    // Power dial is tricky without a max. Let's assume 350W as 100% for scaling.
+    const pPerc = Math.min(100, Math.round((stats.power / 350) * 100));
+    powerFill.setAttribute('stroke-dasharray', `${pPerc}, 100`);
+    powerVal.textContent = `${Math.round(stats.power)}W`;
+    powerFill.classList.toggle('warning', pPerc > 80);
+    powerFill.classList.toggle('critical', pPerc > 95);
+  }
+}
+
+// ─── Tooltips ─────────────────────────────────────────────────────────────────
+function setupTooltips() {
+  const popup = document.getElementById('tooltipPopup');
+  let hideTimeout;
+
+  document.addEventListener('mouseover', (e) => {
+    const tip = e.target.closest('.help-tip');
+    if (!tip) return;
+    clearTimeout(hideTimeout);
+    const text = tip.getAttribute('data-tip');
+    popup.textContent = text;
+    const rect = tip.getBoundingClientRect();
+    popup.style.left = Math.min(rect.left, window.innerWidth - 280) + 'px';
+    popup.style.top = (rect.bottom + 8) + 'px';
+    popup.classList.add('visible');
+  });
+
+  document.addEventListener('mouseout', (e) => {
+    if (e.target.closest('.help-tip')) {
+      hideTimeout = setTimeout(() => popup.classList.remove('visible'), 200);
+    }
+  });
+}
+
+// ─── Utility ──────────────────────────────────────────────────────────────────
+function esc(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function detectLineClass(line) {
+  const l = line.toLowerCase();
+  if (l.includes('error') || l.includes('fail') || l.includes('fatal')) return 'stderr';
+  if (l.includes('warn'))  return 'warn';
+  if (l.includes('listen') || l.includes('ready') || l.includes('started') || l.includes('success')) return 'success';
+  return 'stdout';
+}
+
+// Initialize polling
+startStatsPolling();
