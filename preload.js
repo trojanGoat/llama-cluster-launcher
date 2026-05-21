@@ -32,4 +32,9 @@ contextBridge.exposeInMainWorld('api', {
   // GPU Stats
   gpuGetStatsLocal: () => ipcRenderer.invoke('gpu:getStatsLocal'),
   gpuGetStatsRemote: (opts) => ipcRenderer.invoke('gpu:getStatsRemote', opts),
+
+  // Screenshot mode
+  isScreenshotMode: process.env.TAKE_SCREENSHOT === 'true',
+  captureScreenshot: () => ipcRenderer.invoke('screenshot:capture'),
 });
+

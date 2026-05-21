@@ -1,12 +1,42 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { exec, spawn } = require('child_process');
 const { Client: SSHClient } = require('ssh2');
 const Store = require('electron-store');
 
+const SCREENSHOT_MODE = process.env.TAKE_SCREENSHOT === 'true';
+
 const store = new Store({
   encryptionKey: 'llama-launcher-key-v1'
 });
+
+// ─── Mock data for screenshot mode ───────────────────────────────────────────
+const SCREENSHOT_MOCK_STATE = {
+  masterBinPath: '/opt/llama.cpp/build/bin/llama-server',
+  modelPath: '/models/Llama-3.3-70B-Instruct-Q4_K_M.gguf',
+  masterPort: '8080',
+  masterHost: '0.0.0.0',
+  ngl: '99',
+  contextSize: '32768',
+  ctk: 'q8_0',
+  ctv: 'q8_0',
+  nParallel: '2',
+  flashAttn: 'auto',
+  masterExtraFlags: '',
+  slaves: [
+    {
+      id: 'slave_1', label: 'GPU Node 1', ip: '192.168.8.101',
+      username: 'ubuntu', password: '',
+      binPath: '~/llama.cpp/build/bin/rpc-server', port: '52396', extraFlags: ''
+    },
+    {
+      id: 'slave_2', label: 'GPU Node 2', ip: '192.168.8.102',
+      username: 'ubuntu', password: '',
+      binPath: '~/llama.cpp/build/bin/rpc-server', port: '52396', extraFlags: ''
+    }
+  ]
+};
 
 let mainWindow;
 // Track running processes: { master: ChildProcess|null, slaves: { [id]: SSHClient|null } }
@@ -17,8 +47,8 @@ const runningProcesses = {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: SCREENSHOT_MODE ? 1600 : 1400,
+    height: SCREENSHOT_MODE ? 950 : 900,
     minWidth: 1100,
     minHeight: 700,
     webPreferences: {
@@ -33,15 +63,18 @@ function createWindow() {
       height: 36
     },
     backgroundColor: '#111111',
-    show: false,
+    // In screenshot mode show immediately — no wait for user interaction
+    show: SCREENSHOT_MODE,
     icon: path.join(__dirname, 'src', 'icon.png')
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-  });
+  if (!SCREENSHOT_MODE) {
+    mainWindow.once('ready-to-show', () => {
+      mainWindow.show();
+    });
+  }
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -90,8 +123,27 @@ app.on('will-quit', () => {
 
 // ─── Settings persistence ───────────────────────────────────────────────────
 ipcMain.handle('store:get', (_, key) => store.get(key));
-ipcMain.handle('store:set', (_, key, value) => store.set(key, value));
-ipcMain.handle('store:getAll', () => store.store);
+ipcMain.handle('store:set', (_, key, value) => { if (!SCREENSHOT_MODE) store.set(key, value); });
+ipcMain.handle('store:getAll', () => SCREENSHOT_MODE ? SCREENSHOT_MOCK_STATE : store.store);
+
+// ─── Screenshot capture ──────────────────────────────────────────────────────
+ipcMain.handle('screenshot:capture', async () => {
+  if (!SCREENSHOT_MODE || !mainWindow) return { success: false };
+  try {
+    const image = await mainWindow.webContents.capturePage();
+    const outDir = path.join(__dirname, 'docs', 'images');
+    fs.mkdirSync(outDir, { recursive: true });
+    const outPath = path.join(outDir, 'launcher_screenshot.png');
+    fs.writeFileSync(outPath, image.toPNG());
+    console.log(`[screenshot] Saved → ${outPath}`);
+    setTimeout(() => app.quit(), 200);
+    return { success: true, path: outPath };
+  } catch (err) {
+    console.error('[screenshot] Error:', err);
+    app.quit();
+    return { success: false, error: err.message };
+  }
+});
 
 // ─── File dialog ─────────────────────────────────────────────────────────────
 ipcMain.handle('dialog:openFile', async (_, options) => {

@@ -24,3 +24,7 @@ yarn-error.log*
 
 # Electron-store local data (if any)
 *.json.bak
+
+# Antigravity CLI configuration
+.antigravitycli/
+

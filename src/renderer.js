@@ -759,5 +759,95 @@ function detectLineClass(line) {
   return 'stdout';
 }
 
-// Initialize polling
-startStatsPolling();
+// Initialize polling (only in real mode)
+if (!window.api.isScreenshotMode) {
+  startStatsPolling();
+}
+
+// ─── Screenshot Mode ──────────────────────────────────────────────────────────
+// When TAKE_SCREENSHOT=true, the app loads with mock cluster config (injected via
+// store:getAll in main.js). We then animate the UI into a "running" state with
+// realistic terminal output and GPU dial values before capturing.
+if (window.api.isScreenshotMode) {
+  // Wait for all cards to render first
+  setTimeout(async () => {
+    // ── Put master into running state ──
+    masterRunning = true;
+    setMasterStatus('running');
+
+    // Fill master terminal with realistic startup logs
+    const masterLogs = [
+      { text: '▶ Launching: /opt/llama.cpp/build/bin/llama-server -m /models/Llama-3.3-70B-Instruct-Q4_K_M.gguf --port 8080 --host 0.0.0.0 -ngl 99 --rpc 192.168.8.101:52396,192.168.8.102:52396 -c 32768 -ctk q8_0 -ctv q8_0 -np 2 --flash-attn auto', cls: 'info' },
+      { text: 'ggml_cuda_init: GGML_CUDA_FORCE_MMQ: no', cls: 'stdout' },
+      { text: 'ggml_cuda_init: CUDA_USE_TENSOR_CORES: yes', cls: 'stdout' },
+      { text: 'ggml_cuda_init: found 1 CUDA device(s):', cls: 'stdout' },
+      { text: '  Device 0: NVIDIA GeForce RTX 4090, compute capability 8.9, VMM: yes', cls: 'stdout' },
+      { text: 'llm_load_tensors: offloading 80 repeating layers to GPU', cls: 'stdout' },
+      { text: 'llm_load_tensors: offloading output layer to GPU', cls: 'stdout' },
+      { text: 'llm_load_tensors: offloaded 81/81 layers to GPU', cls: 'stdout' },
+      { text: 'llm_load_tensors: CPU buffer size = 491.07 MiB', cls: 'stdout' },
+      { text: 'llm_load_tensors: CUDA0 buffer size = 18432.25 MiB', cls: 'stdout' },
+      { text: 'llm_load_tensors: RPC[192.168.8.101:52396] buffer size = 18432.25 MiB', cls: 'success' },
+      { text: 'llm_load_tensors: RPC[192.168.8.102:52396] buffer size = 18432.25 MiB', cls: 'success' },
+      { text: '............................................', cls: 'stdout' },
+      { text: 'llama_new_context_with_model: n_ctx = 32768, n_batch = 2048, n_ubatch = 512', cls: 'stdout' },
+      { text: 'llama_new_context_with_model: flash_attn = 1', cls: 'stdout' },
+      { text: 'llama_kv_cache_init:      CUDA0 KV buffer size =  2048.00 MiB', cls: 'stdout' },
+      { text: '✓ Master started (PID 18432)', cls: 'success' },
+      { text: 'llama_server_listen: HTTP server listening on 0.0.0.0:8080', cls: 'success' },
+      { text: 'slot available for connections, processing requests...', cls: 'success' },
+    ];
+    masterLogs.forEach(({ text, cls }) => logMaster(text, cls));
+
+    // ── GPU dials for master (RTX 4090: 42% util, 18.4/24G VRAM, 285W) ──
+    updateGpuUI('master', { util: 42, memUsed: 18842, memTotal: 24576, power: 285 });
+
+    // ── Put slave nodes into running state ──
+    const slaveConfigs = [
+      {
+        mockLogs: [
+          { text: '▶ Connecting to 192.168.8.101 via SSH…', cls: 'info' },
+          { text: '✓ SSH connected to ubuntu@192.168.8.101', cls: 'success' },
+          { text: 'ggml_cuda_init: found 1 CUDA device(s):', cls: 'stdout' },
+          { text: '  Device 0: NVIDIA GeForce RTX 3090, compute capability 8.6, VMM: yes', cls: 'stdout' },
+          { text: 'rpc_server: loading 40 layers to GPU 0', cls: 'stdout' },
+          { text: 'rpc_server: listening on 192.168.8.101:52396', cls: 'success' },
+        ],
+        gpuStats: { util: 75, memUsed: 16240, memTotal: 24576, power: 310 },
+      },
+      {
+        mockLogs: [
+          { text: '▶ Connecting to 192.168.8.102 via SSH…', cls: 'info' },
+          { text: '✓ SSH connected to ubuntu@192.168.8.102', cls: 'success' },
+          { text: 'ggml_cuda_init: found 1 CUDA device(s):', cls: 'stdout' },
+          { text: '  Device 0: NVIDIA GeForce RTX 3090, compute capability 8.6, VMM: yes', cls: 'stdout' },
+          { text: 'rpc_server: loading 40 layers to GPU 0', cls: 'stdout' },
+          { text: 'rpc_server: listening on 192.168.8.102:52396', cls: 'success' },
+        ],
+        gpuStats: { util: 68, memUsed: 15820, memTotal: 24576, power: 295 },
+      },
+    ];
+
+    slaves.forEach((slaveState, i) => {
+      const cfg = slaveConfigs[i];
+      if (!cfg) return;
+      const card = document.getElementById(`card_${slaveState.id}`);
+      if (!card) return;
+
+      // Force running state
+      setSlaveStatus(slaveState, card, 'running');
+
+      // Fill terminal
+      cfg.mockLogs.forEach(({ text, cls }) => logSlave(slaveState.id, text, cls));
+
+      // Update GPU dials
+      updateGpuUI(slaveState.id, cfg.gpuStats);
+    });
+
+    // ── Capture after fonts and animations settle ──
+    await new Promise(r => setTimeout(r, 1800));
+    await window.api.captureScreenshot();
+
+  }, 600);
+}
+
