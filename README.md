@@ -19,6 +19,7 @@ A professional-grade Electron GUI for managing distributed `llama.cpp` inference
 - **Master/Slave Architecture**: Manage a local `llama-server` (Master) and multiple remote `rpc-server` instances (Slaves) from one window.
 - **SSH Integration**: Connects to remote machines, verifies SSH reachability, and launches processes automatically.
 - **Real-time GPU Metrics**: Live dials for GPU Utilization, VRAM usage, and Power draw on all nodes via `nvidia-smi`.
+- **Token Tracking**: Live daily token count and 7-day usage graph to monitor your cluster's workload over time.
 - **Flash Attention Control**: Fine-grained `--flash-attn` (auto/on/off) for optimized inference.
 - **Live Terminal Output**: Real-time stdout/stderr streaming with intelligent log coloring.
 - **Port Safety Checks**: Verifies local and remote ports aren't already in use before launching.

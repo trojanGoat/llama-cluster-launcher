@@ -145,6 +145,96 @@ ipcMain.handle('screenshot:capture', async () => {
   }
 });
 
+// ─── Token Logging ───────────────────────────────────────────────────────────
+ipcMain.handle('tokens:log', (_, tokensToAdd) => {
+  if (SCREENSHOT_MODE || !tokensToAdd) return { success: true };
+  try {
+    const logsDir = path.join(__dirname, 'logs');
+    if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+    
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const logFile = path.join(logsDir, `token_usage_${year}_${month}.txt`);
+    
+    // Format: YYYY-MM-DD HH:MM:SS, <tokens>
+    const dateStr = now.toISOString().slice(0, 10);
+    const timeStr = now.toTimeString().slice(0, 8);
+    const line = `${dateStr} ${timeStr}, ${tokensToAdd}\n`;
+    
+    fs.appendFileSync(logFile, line, 'utf8');
+    return { success: true };
+  } catch (err) {
+    console.error('Error logging tokens:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('tokens:getHistory', () => {
+  if (SCREENSHOT_MODE) {
+    // Return mock data
+    return {
+      success: true,
+      history: {
+        '2026-05-17': 12000,
+        '2026-05-18': 45000,
+        '2026-05-19': 32000,
+        '2026-05-20': 56000,
+        '2026-05-21': 105000,
+        '2026-05-22': 89000,
+        '2026-05-23': 24000
+      }
+    };
+  }
+  
+  try {
+    const logsDir = path.join(__dirname, 'logs');
+    if (!fs.existsSync(logsDir)) return { success: true, history: {} };
+    
+    // We need to read files for the current and previous month to get the last 7 days
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonth = `${prevDate.getFullYear()}_${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+    
+    const filesToRead = [
+      path.join(logsDir, `token_usage_${prevMonth}.txt`),
+      path.join(logsDir, `token_usage_${currentMonth}.txt`)
+    ];
+    
+    const history = {};
+    
+    // Get past 7 dates
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      history[d.toISOString().slice(0, 10)] = 0;
+    }
+    
+    filesToRead.forEach(file => {
+      if (fs.existsSync(file)) {
+        const content = fs.readFileSync(file, 'utf8');
+        content.split('\n').forEach(line => {
+          if (!line.trim()) return;
+          const [dt, tokens] = line.split(',');
+          if (dt && tokens) {
+            const date = dt.split(' ')[0];
+            if (history[date] !== undefined) {
+              history[date] += parseInt(tokens.trim(), 10) || 0;
+            }
+          }
+        });
+      }
+    });
+    
+    return { success: true, history };
+  } catch (err) {
+    console.error('Error fetching token history:', err);
+    return { success: false, error: err.message };
+  }
+});
+
 // ─── File dialog ─────────────────────────────────────────────────────────────
 ipcMain.handle('dialog:openFile', async (_, options) => {
   const result = await dialog.showOpenDialog(mainWindow, options);

@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <script src="chart.js"></script>
 </head>
 <body>
   <!-- Title bar drag region -->
@@ -30,7 +31,15 @@
           <h2 class="panel-title">Master Node</h2>
           <span class="status-badge" id="masterStatusBadge">Stopped</span>
         </div>
-        <p class="panel-subtitle">Runs locally — llama-server with model inference</p>
+        <div class="token-monitor-header" id="masterTokenMonitor">
+          <div class="token-live-wrap">
+            <div class="token-count" id="liveTokenCount">0</div>
+            <div class="token-label">Tokens Today</div>
+          </div>
+          <div class="token-chart-wrap">
+            <canvas id="tokenChartCanvas"></canvas>
+          </div>
+        </div>
       </div>
 
       <div class="panel-body">
@@ -236,7 +245,7 @@
         </div>
       </div>
     </div>
-
+      
     <!-- ══════════════════ SLAVE PANEL ══════════════════ -->
     <div class="panel slave-panel" id="slavePanel">
       <div class="panel-header">

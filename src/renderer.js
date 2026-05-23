@@ -4,6 +4,8 @@
 let slaves = [];           // Array of slave config objects
 let masterRunning = false;
 let slaveCounter = 0;
+let todayTotalTokens = 0;
+let tokenChart = null;
 
 // ─── Initialise ─────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -14,6 +16,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupTooltips();
   updateMasterPreview();
   renderRpcField();
+  initTokenChart();
 });
 
 // ─── Persist helpers ─────────────────────────────────────────────────────────
@@ -275,6 +278,24 @@ function setupMasterIPC() {
       if (!line) return;
       const cls = stream === 'stderr' ? 'stderr' : detectLineClass(line);
       logMaster(line, cls);
+      
+      // Parse token usage from llama.cpp output
+      // e.g. "total time =   36185.07 ms /   548 tokens" or "548 token"
+      const tokenMatch = line.match(/total time\s*=\s*[\d.]+\s*ms\s*\/\s*(\d+)\s*tokens?/i);
+      if (tokenMatch) {
+        const tokensUsed = parseInt(tokenMatch[1], 10);
+        if (tokensUsed > 0) {
+          todayTotalTokens += tokensUsed;
+          document.getElementById('liveTokenCount').textContent = todayTotalTokens.toLocaleString();
+          window.api.logTokens(tokensUsed);
+          
+          if (tokenChart && tokenChart.data.datasets[0].data.length > 0) {
+            const len = tokenChart.data.datasets[0].data.length;
+            tokenChart.data.datasets[0].data[len - 1] = todayTotalTokens;
+            tokenChart.update();
+          }
+        }
+      }
     });
   });
 
@@ -719,6 +740,77 @@ function updateGpuUI(id, stats) {
     powerFill.classList.toggle('warning', pPerc > 80);
     powerFill.classList.toggle('critical', pPerc > 95);
   }
+}
+
+// ─── Token Chart ──────────────────────────────────────────────────────────────
+async function initTokenChart() {
+  const result = await window.api.getTokenHistory();
+  if (!result.success) return;
+  
+  const history = result.history; // e.g. { '2026-05-17': 12000, ... }
+  const dates = Object.keys(history).sort();
+  const values = dates.map(d => history[d]);
+  
+  // Set today's initial total
+  const todayStr = new Date().toISOString().slice(0, 10);
+  todayTotalTokens = history[todayStr] || 0;
+  document.getElementById('liveTokenCount').textContent = todayTotalTokens.toLocaleString();
+  
+  const ctx = document.getElementById('tokenChartCanvas').getContext('2d');
+  
+  if (tokenChart) {
+    tokenChart.destroy();
+  }
+  
+  // Format labels for display (e.g. 'May 17')
+  const labels = dates.map(d => {
+    const dt = new Date(d);
+    return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  });
+
+  tokenChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Tokens',
+        data: values,
+        borderColor: '#7c3aed', // --accent-indigo
+        backgroundColor: 'rgba(124, 58, 237, 0.1)',
+        borderWidth: 2,
+        pointBackgroundColor: '#7c3aed',
+        pointRadius: 3,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#222',
+          titleColor: '#ccc',
+          bodyColor: '#fff',
+          callbacks: {
+            label: (ctx) => `${ctx.parsed.y.toLocaleString()} tokens`
+          }
+        }
+      },
+      scales: {
+        x: {
+          display: true,
+          grid: { display: false },
+          ticks: { color: '#888', font: { size: 9 } }
+        },
+        y: {
+          display: true,
+          beginAtZero: true
+        }
+      }
+    }
+  });
 }
 
 // ─── Tooltips ─────────────────────────────────────────────────────────────────

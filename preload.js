@@ -36,5 +36,9 @@ contextBridge.exposeInMainWorld('api', {
   // Screenshot mode
   isScreenshotMode: process.env.TAKE_SCREENSHOT === 'true',
   captureScreenshot: () => ipcRenderer.invoke('screenshot:capture'),
+
+  // Tokens
+  logTokens: (tokens) => ipcRenderer.invoke('tokens:log', tokens),
+  getTokenHistory: () => ipcRenderer.invoke('tokens:getHistory'),
 });
 
