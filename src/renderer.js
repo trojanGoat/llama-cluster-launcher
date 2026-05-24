@@ -752,7 +752,8 @@ async function initTokenChart() {
   const values = dates.map(d => history[d]);
   
   // Set today's initial total
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   todayTotalTokens = history[todayStr] || 0;
   document.getElementById('liveTokenCount').textContent = todayTotalTokens.toLocaleString();
   
@@ -764,7 +765,8 @@ async function initTokenChart() {
   
   // Format labels for display (e.g. 'May 17')
   const labels = dates.map(d => {
-    const dt = new Date(d);
+    const [y, m, day] = d.split('-');
+    const dt = new Date(y, m - 1, day);
     return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   });
 
@@ -941,5 +943,122 @@ if (window.api.isScreenshotMode) {
     await window.api.captureScreenshot();
 
   }, 600);
+}
+
+/* ─── Flags Modal Logic ─────────────────────────────────────── */
+const flagsModal = document.getElementById('flagsModal');
+const flagsModalOverlay = document.getElementById('flagsModalOverlay');
+const extraFlagsHelp = document.getElementById('extraFlagsHelp');
+const closeFlagsModal = document.getElementById('closeFlagsModal');
+const flagsModalBody = document.getElementById('flagsModalBody');
+
+function openFlagsModal() {
+  flagsModal.style.display = 'flex';
+  flagsModalOverlay.style.display = 'block';
+  
+  if (!flagsModalBody.hasAttribute('data-loaded')) {
+    renderFlags();
+    flagsModalBody.setAttribute('data-loaded', 'true');
+  }
+  
+  const currentCmd = document.getElementById('masterCmdPreview').innerText;
+  if (typeof highlightActiveFlags === 'function') {
+    highlightActiveFlags(currentCmd);
+  }
+}
+
+function closeFlagsModalFunc() {
+  flagsModal.style.display = 'none';
+  flagsModalOverlay.style.display = 'none';
+}
+
+function renderFlags() {
+  flagsModalBody.innerHTML = '';
+  
+  if (typeof LLAMA_FLAGS === 'undefined' || !LLAMA_FLAGS.length) {
+    flagsModalBody.innerHTML = '<div class="modal-loading" style="color:var(--accent-rose)">Failed to load flags. Please check flags.js</div>';
+    return;
+  }
+  
+  LLAMA_FLAGS.forEach(flagObj => {
+    const item = document.createElement('div');
+    item.className = 'flag-item';
+    
+    const name = document.createElement('div');
+    name.className = 'flag-name';
+    name.textContent = flagObj.flag;
+    
+    const desc = document.createElement('div');
+    desc.className = 'flag-desc';
+    desc.textContent = flagObj.description;
+    
+    item.appendChild(name);
+    item.appendChild(desc);
+    flagsModalBody.appendChild(item);
+  });
+}
+
+if (extraFlagsHelp) extraFlagsHelp.addEventListener('click', openFlagsModal);
+if (closeFlagsModal) closeFlagsModal.addEventListener('click', closeFlagsModalFunc);
+if (flagsModalOverlay) flagsModalOverlay.addEventListener('click', closeFlagsModalFunc);
+
+function highlightActiveFlags(commandString) {
+  const flagItems = document.querySelectorAll('#flagsModalBody .flag-item');
+  const tokens = commandString.split(/\s+/);
+  
+  flagItems.forEach(item => {
+    const flagNameElement = item.querySelector('.flag-name');
+    if (!flagNameElement) return;
+    
+    const flagNameText = flagNameElement.textContent;
+    // Extract flag names: short flags like -m and long flags like --model
+    const flagMatches = flagNameText.match(/(-\w+|--[\w-]+)/g);
+    
+    if (flagMatches) {
+      // Check if any of the extracted flags exist in the command tokens
+      const isActive = flagMatches.some(flag => tokens.includes(flag));
+      if (isActive) {
+        item.classList.add('active-flag');
+      } else {
+        item.classList.remove('active-flag');
+      }
+    } else {
+      item.classList.remove('active-flag');
+    }
+  });
+}
+
+/* ─── About Modal Logic ─────────────────────────────────────── */
+const aboutModalOverlay = document.getElementById('aboutModalOverlay');
+const closeAboutModal = document.getElementById('closeAboutModal');
+const openAboutBtn = document.getElementById('openAboutBtn');
+
+function openAbout() {
+  if(aboutModalOverlay) {
+    aboutModalOverlay.style.display = 'flex';
+    // Small delay to allow display:flex to apply before adding class for transition
+    setTimeout(() => {
+      aboutModalOverlay.classList.add('active');
+    }, 10);
+  }
+}
+
+function closeAbout() {
+  if(aboutModalOverlay) {
+    aboutModalOverlay.classList.remove('active');
+    setTimeout(() => {
+      aboutModalOverlay.style.display = 'none';
+    }, 300); // match transition time
+  }
+}
+
+if (openAboutBtn) openAboutBtn.addEventListener('click', openAbout);
+if (closeAboutModal) closeAboutModal.addEventListener('click', closeAbout);
+if (aboutModalOverlay) {
+  aboutModalOverlay.addEventListener('click', (e) => {
+    if (e.target === aboutModalOverlay) {
+      closeAbout();
+    }
+  });
 }
 

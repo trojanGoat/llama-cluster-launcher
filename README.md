@@ -1,5 +1,7 @@
 # 🦙 Llama Cluster Launcher
 
+<img src="src/logos/llama_cluster_logo_v001.png" width="250" alt="Llama Cluster Launcher Logo" align="right">
+
 A professional-grade Electron GUI for managing distributed `llama.cpp` inference clusters. Launch a master inference server locally and connect multiple remote GPU slave nodes via SSH — all from a single interface.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
@@ -44,7 +46,7 @@ A professional-grade Electron GUI for managing distributed `llama.cpp` inference
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/llama-cluster-launcher.git
+git clone https://github.com/trojanGoat/llama-cluster-launcher.git
 cd llama-cluster-launcher
 
 # Install dependencies

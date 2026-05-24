@@ -1,6 +1,6 @@
 {
   "name": "llama-cluster-launcher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GUI launcher for llama.cpp clustered inference (master + SSH slaves)",
   "main": "main.js",
   "scripts": {

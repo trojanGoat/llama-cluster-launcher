@@ -70,6 +70,28 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
 
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    if (params.linkURL) {
+      const { Menu, clipboard } = require('electron');
+      const menu = Menu.buildFromTemplate([
+        {
+          label: 'Open Link',
+          click: () => shell.openExternal(params.linkURL)
+        },
+        {
+          label: 'Copy Link Address',
+          click: () => clipboard.writeText(params.linkURL)
+        }
+      ]);
+      menu.popup();
+    }
+  });
+
   if (!SCREENSHOT_MODE) {
     mainWindow.once('ready-to-show', () => {
       mainWindow.show();
@@ -158,7 +180,7 @@ ipcMain.handle('tokens:log', (_, tokensToAdd) => {
     const logFile = path.join(logsDir, `token_usage_${year}_${month}.txt`);
     
     // Format: YYYY-MM-DD HH:MM:SS, <tokens>
-    const dateStr = now.toISOString().slice(0, 10);
+    const dateStr = `${year}-${month}-${String(now.getDate()).padStart(2, '0')}`;
     const timeStr = now.toTimeString().slice(0, 8);
     const line = `${dateStr} ${timeStr}, ${tokensToAdd}\n`;
     
@@ -209,7 +231,8 @@ ipcMain.handle('tokens:getHistory', () => {
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
-      history[d.toISOString().slice(0, 10)] = 0;
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      history[dateStr] = 0;
     }
     
     filesToRead.forEach(file => {
