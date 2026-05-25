@@ -193,28 +193,29 @@ ipcMain.handle('tokens:log', (_, tokensToAdd) => {
 });
 
 ipcMain.handle('tokens:getHistory', () => {
+  const now = new Date();
+  const todayPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
   if (SCREENSHOT_MODE) {
-    // Return mock data
+    // Return mock data for 168 hours
+    const mockHistory = {};
+    for (let i = 167; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 60 * 60 * 1000);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`;
+      mockHistory[dateStr] = Math.floor(Math.random() * 5000);
+    }
     return {
       success: true,
-      history: {
-        '2026-05-17': 12000,
-        '2026-05-18': 45000,
-        '2026-05-19': 32000,
-        '2026-05-20': 56000,
-        '2026-05-21': 105000,
-        '2026-05-22': 89000,
-        '2026-05-23': 24000
-      }
+      history: mockHistory,
+      todayTotal: 25000
     };
   }
   
   try {
     const logsDir = path.join(__dirname, 'logs');
-    if (!fs.existsSync(logsDir)) return { success: true, history: {} };
+    if (!fs.existsSync(logsDir)) return { success: true, history: {}, todayTotal: 0 };
     
-    // We need to read files for the current and previous month to get the last 7 days
-    const now = new Date();
+    // We need to read files for the current and previous month to get the last 24 hours
     const currentMonth = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`;
     
     const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -226,12 +227,12 @@ ipcMain.handle('tokens:getHistory', () => {
     ];
     
     const history = {};
+    let todayTotal = 0;
     
-    // Get past 7 dates
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    // Get past 7 days (168 hours)
+    for (let i = 167; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 60 * 60 * 1000);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`;
       history[dateStr] = 0;
     }
     
@@ -242,16 +243,20 @@ ipcMain.handle('tokens:getHistory', () => {
           if (!line.trim()) return;
           const [dt, tokens] = line.split(',');
           if (dt && tokens) {
-            const date = dt.split(' ')[0];
-            if (history[date] !== undefined) {
-              history[date] += parseInt(tokens.trim(), 10) || 0;
+            const dateHour = dt.substring(0, 13) + ':00';
+            const parsedTokens = parseInt(tokens.trim(), 10) || 0;
+            if (history[dateHour] !== undefined) {
+              history[dateHour] += parsedTokens;
+            }
+            if (dt.startsWith(todayPrefix)) {
+              todayTotal += parsedTokens;
             }
           }
         });
       }
     });
     
-    return { success: true, history };
+    return { success: true, history, todayTotal };
   } catch (err) {
     console.error('Error fetching token history:', err);
     return { success: false, error: err.message };
@@ -473,5 +478,37 @@ ipcMain.handle('ssh:test', (_, { host, username, password }) => {
     }).on('error', (err) => {
       resolve({ success: false, error: err.message });
     }).connect({ host, port: 22, username, password, readyTimeout: 8000 });
+  });
+});
+// ─── Llama Version ────────────────────────────────────────────────────────────
+ipcMain.handle('llama:getVersionLocal', async (_, binPath) => {
+  return new Promise(resolve => {
+    if (!binPath) return resolve({ success: false });
+    exec(`"${binPath}" --version`, (err, stdout, stderr) => {
+      if (err && !stdout && !stderr) return resolve({ success: false });
+      const out = (stdout || '').trim() || (stderr || '').trim();
+      const firstLine = out.split('\n')[0].trim();
+      resolve({ success: true, version: firstLine });
+    });
+  });
+});
+
+ipcMain.handle('llama:getVersionRemote', async (_, req) => {
+  return new Promise(resolve => {
+    const conn = new SSHClient();
+    conn.on('ready', () => {
+      conn.exec(`"${req.binPath}" --version`, (err, stream) => {
+        if (err) { conn.end(); return resolve({ success: false }); }
+        let out = '';
+        stream.on('data', d => out += d.toString())
+              .on('stderr', d => out += d.toString())
+              .on('close', () => {
+                conn.end();
+                const firstLine = out.split('\n')[0].trim();
+                resolve({ success: true, version: firstLine });
+              });
+      });
+    }).on('error', () => resolve({ success: false }))
+      .connect({ host: req.host, port: req.port || 22, username: req.user, password: req.password });
   });
 });

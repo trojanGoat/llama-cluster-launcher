@@ -17,7 +17,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateMasterPreview();
   renderRpcField();
   initTokenChart();
+  updateMasterVersion();
 });
+
+// ─── Version checking ────────────────────────────────────────────────────────
+async function updateMasterVersion() {
+  const bin = document.getElementById('masterBinPath').value.trim() || './llama-server';
+  const res = await window.api.getLlamaVersionLocal(bin);
+  const el = document.getElementById('masterVersion');
+  if (el) {
+    el.textContent = res.success && res.version ? `(${res.version})` : '';
+  }
+}
 
 // ─── Persist helpers ─────────────────────────────────────────────────────────
 async function loadSettings() {
@@ -110,6 +121,7 @@ function setupMasterListeners() {
       document.getElementById('masterBinPath').value = file;
       saveSetting('masterBinPath', file);
       updateMasterPreview();
+      updateMasterVersion();
     }
   });
 
@@ -128,6 +140,11 @@ function setupMasterListeners() {
   });
 
   // Port check on blur — READ-ONLY, does not affect any running service
+  document.getElementById('masterBinPath').addEventListener('input', () => {
+  saveSetting('masterBinPath', document.getElementById('masterBinPath').value);
+  updateMasterPreview();
+});
+document.getElementById('masterBinPath').addEventListener('blur', updateMasterVersion);    
   document.getElementById('masterPort').addEventListener('blur', async () => {
     const port = parseInt(document.getElementById('masterPort').value);
     if (!port) return;
@@ -349,6 +366,23 @@ function addSlaveCard(cfg = {}) {
 
   renderRpcField();
   saveAllSlaves();
+  
+  if (cfg.ip && cfg.username && cfg.binPath) {
+    updateSlaveVersion(id);
+  }
+}
+
+async function updateSlaveVersion(id) {
+  const state = slaves.find(s => s.id === id);
+  if (!state) return;
+  const cfg = state.config;
+  const vRes = await window.api.getLlamaVersionRemote({
+    host: cfg.ip, username: cfg.username, password: cfg.password, binPath: cfg.binPath
+  });
+  const vEl = document.getElementById(`version_${id}`);
+  if (vEl) {
+    vEl.textContent = vRes.success && vRes.version ? `(${vRes.version})` : '';
+  }
 }
 
 function buildSlaveCard(state) {
@@ -364,6 +398,7 @@ function buildSlaveCard(state) {
         <div class="status-orb" id="orb_${id}"></div>
         <input class="slave-label-input" id="label_${id}" type="text"
           placeholder="Node name" value="${esc(config.label)}" />
+        <span id="version_${id}" style="font-size: 0.6em; color: #888; margin-left: 10px; font-weight: normal;"></span>
         <span class="collapse-arrow" id="arrow_${id}">▾</span>
       </div>
       <div class="slave-header-actions">
@@ -508,6 +543,14 @@ function buildSlaveCard(state) {
       btn.textContent = '✓ Connected';
       btn.className = 'btn-ssh-test ok';
       logSlave(id, '✓ SSH connection successful', 'success');
+      
+      const vRes = await window.api.getLlamaVersionRemote({
+        host: cfg.ip, username: cfg.username, password: cfg.password, binPath: cfg.binPath
+      });
+      const vEl = card.querySelector(`#version_${id}`);
+      if (vEl) {
+        vEl.textContent = vRes.success && vRes.version ? `(${vRes.version})` : '';
+      }
     } else {
       btn.textContent = '✗ Failed';
       btn.className = 'btn-ssh-test fail';
@@ -743,31 +786,47 @@ function updateGpuUI(id, stats) {
 }
 
 // ─── Token Chart ──────────────────────────────────────────────────────────────
+let chartVisibleHours = 24;
+let fullTokenHistory = { dates: [], values: [] };
+
 async function initTokenChart() {
   const result = await window.api.getTokenHistory();
   if (!result.success) return;
   
-  const history = result.history; // e.g. { '2026-05-17': 12000, ... }
-  const dates = Object.keys(history).sort();
-  const values = dates.map(d => history[d]);
+  const history = result.history; // e.g. { '2026-05-25 12:00': 12000, ... }
+  fullTokenHistory.dates = Object.keys(history).sort();
+  fullTokenHistory.values = fullTokenHistory.dates.map(d => history[d]);
   
-  // Set today's initial total
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  todayTotalTokens = history[todayStr] || 0;
+  todayTotalTokens = result.todayTotal || 0;
   document.getElementById('liveTokenCount').textContent = todayTotalTokens.toLocaleString();
   
+  renderTokenChart();
+}
+
+function renderTokenChart() {
   const ctx = document.getElementById('tokenChartCanvas').getContext('2d');
   
   if (tokenChart) {
     tokenChart.destroy();
   }
   
-  // Format labels for display (e.g. 'May 17')
+  const sliceStart = Math.max(0, fullTokenHistory.dates.length - chartVisibleHours);
+  const dates = fullTokenHistory.dates.slice(sliceStart);
+  const values = fullTokenHistory.values.slice(sliceStart);
+
+  // Format labels for display
   const labels = dates.map(d => {
-    const [y, m, day] = d.split('-');
-    const dt = new Date(y, m - 1, day);
-    return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    // d is 'YYYY-MM-DD HH:00'
+    const [datePart, timePart] = d.split(' ');
+    if (!datePart || !timePart) return d;
+    const [y, m, day] = datePart.split('-');
+    const [hr, min] = timePart.split(':');
+    const dt = new Date(y, m - 1, day, hr, min);
+    if (chartVisibleHours <= 48) {
+      return dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    } else {
+      return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric' });
+    }
   });
 
   tokenChart = new Chart(ctx, {
@@ -804,7 +863,7 @@ async function initTokenChart() {
         x: {
           display: true,
           grid: { display: false },
-          ticks: { color: '#888', font: { size: 9 } }
+          ticks: { color: '#888', font: { size: 9 }, maxTicksLimit: 12 }
         },
         y: {
           display: true,
@@ -814,6 +873,24 @@ async function initTokenChart() {
     }
   });
 }
+
+// Keep the token chart updated every minute
+setInterval(initTokenChart, 60000);
+
+document.addEventListener('DOMContentLoaded', () => {
+  const chartWrap = document.querySelector('.token-chart-wrap');
+  if (chartWrap) {
+    chartWrap.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      // scale by 12 hours per scroll tick
+      const dir = Math.sign(e.deltaY);
+      chartVisibleHours += dir * 12;
+      if (chartVisibleHours < 24) chartVisibleHours = 24;
+      if (chartVisibleHours > 168) chartVisibleHours = 168; // 7 days max
+      renderTokenChart();
+    }, { passive: false });
+  }
+});
 
 // ─── Tooltips ─────────────────────────────────────────────────────────────────
 function setupTooltips() {

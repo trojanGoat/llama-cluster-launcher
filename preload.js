@@ -40,5 +40,9 @@ contextBridge.exposeInMainWorld('api', {
   // Tokens
   logTokens: (tokens) => ipcRenderer.invoke('tokens:log', tokens),
   getTokenHistory: () => ipcRenderer.invoke('tokens:getHistory'),
+
+  // Llama versions
+  getLlamaVersionLocal: (binPath) => ipcRenderer.invoke('llama:getVersionLocal', binPath),
+  getLlamaVersionRemote: (opts) => ipcRenderer.invoke('llama:getVersionRemote', opts),
 });
 

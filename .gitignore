@@ -17,6 +17,10 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+logs/
+
+# Personal notes
+.jorge_notes/
 
 # Local environment files
 .env
