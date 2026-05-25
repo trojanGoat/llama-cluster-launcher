@@ -1,4 +1,4 @@
-# 🦙 Llama Cluster Launcher
+# Llama Cluster Launcher
 
 <img src="src/logos/llama_cluster_logo_v001.png" width="250" alt="Llama Cluster Launcher Logo" align="right">
 
@@ -23,6 +23,7 @@ A professional-grade Electron GUI for managing distributed `llama.cpp` inference
 - **Real-time GPU Metrics**: Live dials for GPU Utilization, VRAM usage, and Power draw on all nodes via `nvidia-smi`.
 - **Token Tracking**: Live daily token count and 7-day usage graph to monitor your cluster's workload over time.
 - **Flash Attention Control**: Fine-grained `--flash-attn` (auto/on/off) for optimized inference.
+- **Interactive Flags Explorer**: Click the `?` icon next to Extra Flags to pop open an elegant dictionary of all available `llama-server` arguments.
 - **Live Terminal Output**: Real-time stdout/stderr streaming with intelligent log coloring.
 - **Port Safety Checks**: Verifies local and remote ports aren't already in use before launching.
 - **Encrypted Persistence**: Remembers your config across sessions using AES-encrypted local storage.
