@@ -6,6 +6,7 @@ let masterRunning = false;
 let slaveCounter = 0;
 let todayTotalTokens = 0;
 let tokenChart = null;
+let masterGpuStats = null;
 
 // ─── Initialise ─────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -18,6 +19,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderRpcField();
   initTokenChart();
   updateMasterVersion();
+
+  document.querySelectorAll('.collapse-header').forEach(header => {
+    header.addEventListener('click', () => {
+      header.closest('.form-section').classList.toggle('collapsed');
+    });
+  });
+
+  await setupBroadcastServer();
+  setInterval(syncClusterState, 2000);
 });
 
 // ─── Version checking ────────────────────────────────────────────────────────
@@ -57,6 +67,11 @@ async function loadSettings() {
   if (saved.slaves && Array.isArray(saved.slaves)) {
     saved.slaves.forEach(cfg => addSlaveCard(cfg));
   }
+
+  // Load broadcast
+  if (saved.broadcastEnable) {
+    document.getElementById('broadcastEnable').checked = true;
+  }
 }
 
 function setIfExists(id, value) {
@@ -93,6 +108,77 @@ function setupMasterListeners() {
       saveSetting(id, el.value);
     });
   });
+
+// ─── Broadcast Server Sync ───────────────────────────────────────────────────
+async function setupBroadcastServer() {
+  const ports = await window.api.findAvailablePorts();
+  const select = document.getElementById('broadcastPort');
+  select.innerHTML = '';
+
+  const saved = await window.api.storeGetAll();
+  const savedPort = saved && saved.broadcastPort ? parseInt(saved.broadcastPort, 10) : null;
+
+  if (savedPort && !ports.includes(savedPort)) {
+    ports.unshift(savedPort);
+  }
+
+  ports.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p;
+    select.appendChild(opt);
+  });
+
+  if (savedPort) {
+    select.value = savedPort;
+  } else if (ports.length > 0) {
+    select.value = ports[0];
+  }
+
+  const toggleServer = async () => {
+    const enabled = document.getElementById('broadcastEnable').checked;
+    const port = parseInt(document.getElementById('broadcastPort').value, 10);
+    saveSetting('broadcastEnable', enabled);
+    saveSetting('broadcastPort', port);
+    window.api.toggleBroadcastServer(enabled, port);
+
+    const linksDiv = document.getElementById('broadcastLinks');
+    if (enabled && port) {
+      const ips = await window.api.getLocalIPs();
+      const ipList = ips.map(ip => `http://${ip}:${port}`).join('<br>');
+      linksDiv.innerHTML = `Available at:<br>${ipList}`;
+      linksDiv.style.display = 'block';
+    } else {
+      linksDiv.style.display = 'none';
+    }
+  };
+
+  document.getElementById('broadcastEnable').addEventListener('change', toggleServer);
+  document.getElementById('broadcastPort').addEventListener('change', toggleServer);
+
+  // Initial toggle
+  toggleServer();
+}
+
+function syncClusterState() {
+  const state = {
+    master: {
+      running: masterRunning,
+      tokensToday: todayTotalTokens,
+      port: document.getElementById('masterPort').value,
+      host: document.getElementById('masterHost').value,
+      gpuStats: masterGpuStats
+    },
+    slaves: slaves.map(s => ({
+      id: s.config.id,
+      label: s.config.label,
+      ip: s.config.ip,
+      running: s.running,
+      gpuStats: s.lastGpuStats || null
+    }))
+  };
+  window.api.updateClusterState(state);
+}
 
   // NGL slider sync
   const nglSlider = document.getElementById('nglSlider');
@@ -746,6 +832,13 @@ function startStatsPolling() {
 
 function updateGpuUI(id, stats) {
   const isMaster = id === 'master';
+  if (isMaster) {
+    masterGpuStats = stats;
+  } else {
+    const s = slaves.find(x => x.id === id);
+    if (s) s.lastGpuStats = stats;
+  }
+
   const prefix = isMaster ? 'masterGpu' : 'gpu';
   const suffix = isMaster ? '' : `_${id}`;
 

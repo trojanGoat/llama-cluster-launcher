@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld('api', {
   storeSet: (key, value) => ipcRenderer.invoke('store:set', key, value),
   storeGetAll: () => ipcRenderer.invoke('store:getAll'),
 
+  // Networking
+  getLocalIPs: () => ipcRenderer.invoke('server:getLocalIPs'),
+
   // File dialog
   openFile: (options) => ipcRenderer.invoke('dialog:openFile', options),
 
@@ -44,5 +47,11 @@ contextBridge.exposeInMainWorld('api', {
   // Llama versions
   getLlamaVersionLocal: (binPath) => ipcRenderer.invoke('llama:getVersionLocal', binPath),
   getLlamaVersionRemote: (opts) => ipcRenderer.invoke('llama:getVersionRemote', opts),
+
+  // Broadcast server
+  updateClusterState: (state) => ipcRenderer.invoke('server:updateState', state),
+  toggleBroadcastServer: (enabled, port) => ipcRenderer.invoke('server:toggle', { enabled, port }),
+  findAvailablePorts: () => ipcRenderer.invoke('server:findPorts'),
+  getLocalIPs: () => ipcRenderer.invoke('server:getLocalIPs'),
 });
 

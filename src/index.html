@@ -97,6 +97,34 @@
           </div>
         </div>
 
+        <!-- Broadcast Monitor -->
+        <div class="form-section" id="section-broadcast">
+          <div class="section-label-row collapse-header">
+            <h3 class="section-label">Broadcast Monitor</h3>
+            <span class="collapse-arrow">▾</span>
+          </div>
+          <div class="section-content">
+          <div class="fields-grid">
+            <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
+              <input type="checkbox" id="broadcastEnable" class="field-checkbox" />
+              <label class="field-label" for="broadcastEnable" style="margin-bottom: 0;">
+                Enable Local Network Monitoring
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field-label" for="broadcastPort">
+                Broadcast Port
+                <span class="help-tip" data-tip="The HTTP port to serve the read-only dashboard on the local network.">?</span>
+              </label>
+              <select id="broadcastPort" class="field-input field-select">
+                <option value="">Scanning for ports...</option>
+              </select>
+            </div>
+          </div>
+          <div id="broadcastLinks" style="margin-top: 10px; font-size: 0.85em; color: var(--text-muted); display: none;"></div>
+          </div> <!-- /.section-content -->
+        </div>
+
         <!-- GPU & Context -->
         <div class="form-section">
           <h3 class="section-label">GPU & Context</h3>

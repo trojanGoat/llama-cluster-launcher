@@ -4,6 +4,9 @@ const fs = require('fs');
 const { exec, spawn } = require('child_process');
 const { Client: SSHClient } = require('ssh2');
 const Store = require('electron-store');
+const http = require('http');
+const net = require('net');
+const os = require('os');
 
 const SCREENSHOT_MODE = process.env.TAKE_SCREENSHOT === 'true';
 
@@ -511,4 +514,83 @@ ipcMain.handle('llama:getVersionRemote', async (_, req) => {
     }).on('error', () => resolve({ success: false }))
       .connect({ host: req.host, port: req.port || 22, username: req.user, password: req.password });
   });
+});
+
+// ─── Broadcast Server ────────────────────────────────────────────────────────
+let currentClusterState = {};
+let broadcastServer = null;
+
+ipcMain.handle('server:updateState', (_, state) => {
+  currentClusterState = state;
+});
+
+ipcMain.handle('server:toggle', (_, { enabled, port }) => {
+  if (broadcastServer) {
+    broadcastServer.close();
+    broadcastServer = null;
+  }
+  if (enabled && port) {
+    broadcastServer = http.createServer((req, res) => {
+      // CORS headers
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      if (req.url === '/api/status') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(currentClusterState));
+      } else if (req.url === '/' || req.url === '/index.html') {
+        const dashboardPath = path.join(__dirname, 'src', 'dashboard.html');
+        fs.readFile(dashboardPath, (err, data) => {
+          if (err) {
+            res.writeHead(404);
+            res.end('Dashboard not found');
+          } else {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(data);
+          }
+        });
+      } else {
+        res.writeHead(404);
+        res.end('Not found');
+      }
+    });
+    broadcastServer.listen(port, '0.0.0.0', () => {
+      console.log(`Broadcast server listening on 0.0.0.0:${port}`);
+    });
+  }
+  return true;
+});
+
+ipcMain.handle('server:findPorts', async () => {
+  const checkPort = (port) => {
+    return new Promise((resolve) => {
+      const server = net.createServer();
+      server.unref();
+      server.on('error', () => resolve(false));
+      server.listen(port, () => {
+        server.close(() => resolve(true));
+      });
+    });
+  };
+
+  const ports = [];
+  let currentPort = 8081;
+  while (ports.length < 4 && currentPort < 9000) {
+    if (await checkPort(currentPort)) {
+      ports.push(currentPort);
+    }
+    currentPort++;
+  }
+  return ports;
+});
+
+ipcMain.handle('server:getLocalIPs', () => {
+  const nets = os.networkInterfaces();
+  const results = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        results.push(net.address);
+      }
+    }
+  }
+  return results;
 });
