@@ -199,6 +199,16 @@ ipcMain.handle('tokens:log', (_, tokensToAdd) => {
   }
 });
 
+ipcMain.handle('app:getVersionInfo', () => {
+  try {
+    const pkg = require('./package.json');
+    const branch = require('child_process').execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
+    return { version: pkg.version, branch: branch };
+  } catch(e) {
+    return { version: 'unknown', branch: 'unknown' };
+  }
+});
+
 ipcMain.handle('tokens:getHistory', () => {
   const now = new Date();
   const todayPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -236,10 +246,11 @@ ipcMain.handle('tokens:getHistory', () => {
     const history = {};
     let todayTotal = 0;
     
-    // Get past 7 days (168 hours)
-    for (let i = 167; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 60 * 60 * 1000);
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`;
+    // Get past 7 days (168 hours) in 15-minute intervals
+    for (let i = 168 * 4 - 1; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 15 * 60 * 1000);
+      const bucketMin = Math.floor(d.getMinutes() / 15) * 15;
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(bucketMin).padStart(2, '0')}`;
       history[dateStr] = 0;
     }
     
@@ -250,10 +261,12 @@ ipcMain.handle('tokens:getHistory', () => {
           if (!line.trim()) return;
           const [dt, tokens] = line.split(',');
           if (dt && tokens) {
-            const dateHour = dt.substring(0, 13) + ':00';
+            const minPart = dt.length >= 16 ? parseInt(dt.substring(14, 16), 10) : 0;
+            const bucketMin = Math.floor(minPart / 15) * 15;
+            const dateBucket = dt.substring(0, 13) + ':' + String(bucketMin).padStart(2, '0');
             const parsedTokens = parseInt(tokens.trim(), 10) || 0;
-            if (history[dateHour] !== undefined) {
-              history[dateHour] += parsedTokens;
+            if (history[dateBucket] !== undefined) {
+              history[dateBucket] += parsedTokens;
             }
             if (dt.startsWith(todayPrefix)) {
               todayTotal += parsedTokens;
@@ -280,8 +293,24 @@ ipcMain.handle('dialog:openFile', async (_, options) => {
 // READ-ONLY — uses ss to check if a port is in use. Does NOT interact with any running services.
 ipcMain.handle('port:checkLocal', (_, port) => {
   return new Promise((resolve) => {
-    exec(`ss -tlnp | grep ':${port} '`, (err, stdout) => {
-      resolve({ inUse: !!(stdout && stdout.trim().length > 0) });
+    exec(`lsof -i :${port} | grep LISTEN`, (err, stdout) => {
+      if (stdout && stdout.trim().length > 0) {
+        const lines = stdout.trim().split('\n');
+        const parts = lines[0].trim().split(/\s+/);
+        const pName = parts[0];
+        const pid = parts[1];
+        resolve({ inUse: true, processName: pName, pid: pid });
+      } else {
+        resolve({ inUse: false });
+      }
+    });
+  });
+});
+
+ipcMain.handle('port:killLocal', (_, pid) => {
+  return new Promise((resolve) => {
+    exec(`kill -9 ${pid}`, (err) => {
+      resolve({ success: !err });
     });
   });
 });

@@ -21,6 +21,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTokenChart();
     updateMasterVersion();
 
+    const appInfo = await window.api.getAppVersionInfo();
+    const versionDisplay = document.getElementById('appVersionDisplay');
+    if (versionDisplay) {
+      versionDisplay.textContent = `v${appInfo.version} (${appInfo.branch})`;
+    }
+
     document.querySelectorAll('.collapse-header').forEach(header => {
       header.addEventListener('click', () => {
         const parent = header.closest('.form-section') || header.closest('.terminal-container');
@@ -406,9 +412,29 @@ async function handleMasterLaunch() {
   }
 
   if (portCheck.inUse) {
-    logMaster(`❌ Port ${port} is already in use. Please choose a different port.`, 'warn');
-    document.getElementById('masterPortStatus').className = 'port-status used';
-    return;
+    if (!isRemote && portCheck.pid) {
+      const pName = portCheck.processName || 'unknown process';
+      const confirmKill = confirm(`Port ${port} is currently taken by '${pName}' (PID: ${portCheck.pid}).\n\nWould you like to kill this process and proceed?`);
+      if (confirmKill) {
+        await window.api.killPortLocal(portCheck.pid);
+        await new Promise(r => setTimeout(r, 500)); // wait for port to be freed
+        // Re-check just to be sure
+        const recheck = await window.api.checkPortLocal(port);
+        if (recheck.inUse) {
+          logMaster(`❌ Failed to kill process on port ${port}.`, 'error');
+          document.getElementById('masterPortStatus').className = 'port-status used';
+          return;
+        }
+      } else {
+        logMaster(`❌ Port ${port} is in use.`, 'warn');
+        document.getElementById('masterPortStatus').className = 'port-status used';
+        return;
+      }
+    } else {
+      logMaster(`❌ Port ${port} is already in use. Please choose a different port.`, 'warn');
+      document.getElementById('masterPortStatus').className = 'port-status used';
+      return;
+    }
   }
 
   const command = buildMasterCommand();
@@ -428,7 +454,7 @@ async function handleMasterLaunch() {
   const result = await window.api.launchMaster({ command, remoteOpts });
   if (result.success) {
     masterRunning = true;
-    setMasterStatus('running');
+    setMasterStatus('warming');
     logMaster(`✓ Master started (PID ${result.pid || 'remote'})`, 'success');
   } else {
     setMasterStatus('error');
@@ -445,10 +471,10 @@ function setMasterStatus(status) {
   orb.className = `status-orb ${status === 'stopped' ? '' : status}`;
   badge.className = `status-badge ${status === 'stopped' ? '' : status}`;
 
-  const labels = { stopped:'Stopped', starting:'Starting…', running:'Running', error:'Error' };
+  const labels = { stopped:'Stopped', starting:'Starting…', warming:'Warming Up…', running:'Running', idle:'Idle', busy:'Busy', error:'Error' };
   badge.textContent = labels[status] || status;
 
-  if (status === 'running') {
+  if (status === 'running' || status === 'idle' || status === 'busy' || status === 'warming') {
     btn.classList.add('running');
     icon.textContent = '■';
     btn.querySelector('span:last-child') || (btn.lastChild.textContent = '');
@@ -468,6 +494,8 @@ function setMasterStatus(status) {
     document.getElementById('masterTitleText').textContent = 'Master Node';
   }
 }
+
+let masterBusyTimeout = null;
 
 // Buffer for incomplete terminal lines
 let masterTerminalBuffer = '';
@@ -491,8 +519,19 @@ function setupMasterIPC() {
       
       if (!line) continue;
       
-      const cls = stream === 'stderr' ? 'stderr' : detectLineClass(line);
+      const cls = detectLineClass(line);
       logMaster(line, cls);
+      
+      const lowerLine = line.toLowerCase();
+      if (lowerLine.includes('server listening') || lowerLine.includes('listening at') || lowerLine.includes('listening on')) {
+        setMasterStatus('idle');
+      } else if (lowerLine.includes('total time =') || lowerLine.includes('http/1.1 200 ok') || lowerLine.includes('processing') || lowerLine.includes('evaluating')) {
+        setMasterStatus('busy');
+        clearTimeout(masterBusyTimeout);
+        masterBusyTimeout = setTimeout(() => {
+          if (masterRunning) setMasterStatus('idle');
+        }, 2000);
+      }
       
       // Parse token usage from llama.cpp output (supporting multiple timing format variations)
       // We ONLY match 'total time' to prevent triple counting.
@@ -905,7 +944,7 @@ function setupSlaveIPC() {
   window.api.onSlaveOutput(({ slaveId, text, stream }) => {
     text.split('\n').forEach(line => {
       if (!line) return;
-      const cls = stream === 'stderr' ? 'stderr' : detectLineClass(line);
+      const cls = detectLineClass(line);
       logSlave(slaveId, line, cls);
     });
   });
@@ -1033,7 +1072,8 @@ function renderTokenChart() {
     tokenChart.destroy();
   }
   
-  const sliceStart = Math.max(0, fullTokenHistory.dates.length - chartVisibleHours);
+  const pointsPerHour = 4;
+  const sliceStart = Math.max(0, fullTokenHistory.dates.length - (chartVisibleHours * pointsPerHour));
   const dates = fullTokenHistory.dates.slice(sliceStart);
   const values = fullTokenHistory.values.slice(sliceStart);
 
@@ -1105,10 +1145,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (chartWrap) {
     chartWrap.addEventListener('wheel', (e) => {
       e.preventDefault();
-      // scale by 12 hours per scroll tick
+      // scale by 6 hours per scroll tick
       const dir = Math.sign(e.deltaY);
-      chartVisibleHours += dir * 12;
-      if (chartVisibleHours < 24) chartVisibleHours = 24;
+      chartVisibleHours += dir * 6;
+      if (chartVisibleHours < 6) chartVisibleHours = 6;
       if (chartVisibleHours > 168) chartVisibleHours = 168; // 7 days max
       renderTokenChart();
     }, { passive: false });

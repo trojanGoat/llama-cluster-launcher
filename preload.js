@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   // Port checks (read-only)
   checkPortLocal: (port) => ipcRenderer.invoke('port:checkLocal', port),
   checkPortRemote: (opts) => ipcRenderer.invoke('port:checkRemote', opts),
+  killPortLocal: (pid) => ipcRenderer.invoke('port:killLocal', pid),
 
   // Master process
   launchMaster: (opts) => ipcRenderer.invoke('master:launch', opts),
@@ -57,5 +58,6 @@ contextBridge.exposeInMainWorld('api', {
   // Preferences & System
   platform: process.platform,
   createDesktopLauncher: () => ipcRenderer.invoke('preferences:createDesktopLauncher'),
+  getAppVersionInfo: () => ipcRenderer.invoke('app:getVersionInfo'),
 });
 
