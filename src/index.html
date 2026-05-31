@@ -25,16 +25,22 @@
 
     <!-- ══════════════════ MASTER PANEL ══════════════════ -->
     <div class="panel master-panel" id="masterPanel">
-      <div class="panel-header">
+      <div class="panel-header" id="masterPanelHeader">
         <div class="panel-title-row">
           <div class="status-orb" id="masterOrb"></div>
           <h2 class="panel-title">Master Node <span id="masterVersion" style="font-size: 0.6em; color: #888; margin-left: 10px; font-weight: normal;"></span></h2>
           <span class="status-badge" id="masterStatusBadge">Stopped</span>
+          <button class="btn-panel-collapse" id="masterCollapseBtn" title="Minimize/Expand panel">▾</button>
         </div>
         <div class="token-monitor-header" id="masterTokenMonitor">
-          <div class="token-live-wrap">
-            <div class="token-count" id="liveTokenCount">0</div>
-            <div class="token-label">Tokens Today</div>
+          <div class="token-live-wrap" style="display: flex; flex-direction: column; align-items: flex-start; gap: 8px;">
+            <div style="display: flex; flex-direction: column;">
+              <div class="token-count" id="liveTokenCount">0</div>
+              <div class="token-label">Tokens Today</div>
+            </div>
+            <button class="btn-launch" id="masterLaunchBtn" style="margin: 0; padding: 6px 16px; font-size: 0.85em; min-width: 140px; justify-content: center;">
+              <span class="btn-launch-icon">▶</span> Launch Master
+            </button>
           </div>
           <div class="token-chart-wrap">
             <canvas id="tokenChartCanvas"></canvas>
@@ -44,198 +50,412 @@
 
       <div class="panel-body">
 
+        <!-- Configuration Presets -->
+        <div class="form-section" id="section-presets" style="padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); font-weight: 700;">Preset:</span>
+              <select id="presetSelect" class="field-input field-select" style="min-width: 180px; padding: 4px 8px; font-size: 0.85em; margin: 0; background: var(--bg-section);">
+                <option value="">-- No Preset Loaded --</option>
+              </select>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn-browse" id="savePresetBtn" title="Save current settings as preset" style="padding: 4px 10px; font-size: 0.8em; display: flex; align-items: center; gap: 4px;">
+                💾 Save
+              </button>
+              <button class="btn-browse" id="deletePresetBtn" title="Delete active preset" style="padding: 4px 10px; font-size: 0.8em; display: flex; align-items: center; gap: 4px; color: var(--accent-rose); border-color: rgba(217,85,85,0.2);">
+                🗑️ Delete
+              </button>
+            </div>
+          </div>
+          <!-- Inline preset name entry (shown on Save click) -->
+          <div id="presetNameRow" style="display: none; margin-top: 10px; display: none; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <input type="text" id="presetNameInput" class="field-input mono" placeholder="Preset name…" style="flex: 1; min-width: 140px; padding: 4px 8px; font-size: 0.85em; margin: 0;" />
+            <button class="btn-launch" id="confirmSavePresetBtn" style="padding: 4px 12px; font-size: 0.8em; margin: 0; min-width: unset;">✓ Confirm</button>
+            <button class="btn-browse" id="cancelSavePresetBtn" style="padding: 4px 10px; font-size: 0.8em;">✕ Cancel</button>
+          </div>
+        </div>
+
         <!-- Binary path -->
         <div class="form-section">
-          <h3 class="section-label">Binaries & Model</h3>
-          <div class="field-row">
-            <label class="field-label" for="masterBinPath">llama-server binary</label>
-            <div class="path-row">
-              <input type="text" id="masterBinPath" class="field-input mono" placeholder="/path/to/llama-server" />
-              <button class="btn-browse" id="masterBinBrowse" title="Browse">📂</button>
-            </div>
-          </div>
-          <div class="field-row">
-            <label class="field-label" for="modelPath">Model file <span class="badge-gguf">.gguf</span></label>
-            <div class="path-row">
-              <input type="text" id="modelPath" class="field-input mono" placeholder="/path/to/model.gguf" />
-              <button class="btn-browse" id="modelBrowse" title="Browse model">📂</button>
-            </div>
-            <div class="model-chip" id="modelChip" style="display:none"></div>
-          </div>
-        </div>
-
-        <!-- Network -->
-        <div class="form-section">
-          <h3 class="section-label">Network</h3>
-          <div class="fields-grid">
-            <div class="field-row">
-              <label class="field-label" for="masterPort">
-                Port
-                <span class="help-tip" data-tip="The HTTP port llama-server listens on for API requests.">?</span>
-              </label>
-              <div class="port-row">
-                <input type="number" id="masterPort" class="field-input" value="8080" min="1024" max="65535" />
-                <span class="port-status" id="masterPortStatus" title="Port status"></span>
-              </div>
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="masterHost">
-                Bind Host
-                <span class="help-tip" data-tip="Address to bind to. 0.0.0.0 accepts connections from any network interface.">?</span>
-              </label>
-              <input type="text" id="masterHost" class="field-input" value="0.0.0.0" />
-            </div>
-          </div>
-
-          <!-- RPC Slaves (auto-filled from slave list) -->
-          <div class="field-row">
-            <label class="field-label" for="rpcAddresses">
-              --rpc (slave addresses)
-              <span class="help-tip" data-tip="Comma-separated list of RPC slave addresses (host:port). Auto-populated from your slave nodes below.">?</span>
-            </label>
-            <input type="text" id="rpcAddresses" class="field-input mono" placeholder="Auto-filled from slave nodes…" readonly />
-          </div>
-        </div>
-
-        <!-- Broadcast Monitor -->
-        <div class="form-section" id="section-broadcast">
           <div class="section-label-row collapse-header">
-            <h3 class="section-label">Broadcast Monitor</h3>
+            <h3 class="section-label">Binaries &amp; Model</h3>
             <span class="collapse-arrow">▾</span>
           </div>
           <div class="section-content">
-          <div class="fields-grid">
-            <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
-              <input type="checkbox" id="broadcastEnable" class="field-checkbox" />
-              <label class="field-label" for="broadcastEnable" style="margin-bottom: 0;">
-                Enable Local Network Monitoring
-              </label>
+            <div class="field-row">
+              <label class="field-label" for="masterBinPath">llama-server binary</label>
+              <div class="path-row">
+                <input type="text" id="masterBinPath" class="field-input mono" placeholder="/path/to/llama-server" />
+                <button class="btn-browse" id="masterBinBrowse" title="Browse">📂</button>
+              </div>
             </div>
             <div class="field-row">
-              <label class="field-label" for="broadcastPort">
-                Broadcast Port
-                <span class="help-tip" data-tip="The HTTP port to serve the read-only dashboard on the local network.">?</span>
-              </label>
-              <select id="broadcastPort" class="field-input field-select">
-                <option value="">Scanning for ports...</option>
-              </select>
+              <label class="field-label" for="modelPath">Model file <span class="badge-gguf">.gguf</span></label>
+              <div class="path-row">
+                <input type="text" id="modelPath" class="field-input mono" placeholder="/path/to/model.gguf" />
+                <button class="btn-browse" id="modelBrowse" title="Browse model">📂</button>
+              </div>
+              <div class="model-chip" id="modelChip" style="display:none"></div>
             </div>
           </div>
-          <div id="broadcastLinks" style="margin-top: 10px; font-size: 0.85em; color: var(--text-muted); display: none;"></div>
+        </div>
+
+        <!-- System Preferences -->
+        <div class="form-section collapsed" id="section-preferences">
+          <div class="section-label-row collapse-header">
+            <h3 class="section-label">System Preferences</h3>
+            <span class="collapse-arrow">▾</span>
+          </div>
+          <div class="section-content">
+            
+            <!-- Network settings -->
+            <div style="border-bottom: 1px dashed var(--border-subtle); padding-bottom: 12px; margin-bottom: 12px;">
+              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 10px 0;">Network Settings</h4>
+              <div class="fields-grid">
+                <div class="field-row">
+                  <label class="field-label" for="masterPort">
+                    Port
+                    <span class="help-tip" data-tip="The HTTP port llama-server listens on for API requests.">?</span>
+                  </label>
+                  <div class="port-row">
+                    <input type="number" id="masterPort" class="field-input" value="8080" min="1024" max="65535" />
+                    <span class="port-status" id="masterPortStatus" title="Port status"></span>
+                  </div>
+                </div>
+                <div class="field-row">
+                  <label class="field-label" for="masterHost">
+                    Bind Host
+                    <span class="help-tip" data-tip="Address to bind to. 0.0.0.0 accepts connections from any network interface.">?</span>
+                  </label>
+                  <input type="text" id="masterHost" class="field-input" value="0.0.0.0" />
+                </div>
+              </div>
+              <div class="field-row" style="margin-top: 10px;">
+                <label class="field-label" for="rpcAddresses">
+                  --rpc (slave addresses)
+                  <span class="help-tip" data-tip="Comma-separated list of RPC slave addresses (host:port). Auto-populated from your active slave nodes.">?</span>
+                </label>
+                <input type="text" id="rpcAddresses" class="field-input mono" placeholder="Auto-filled from slave nodes…" readonly />
+              </div>
+            </div>
+
+            <!-- Execution Mode -->
+            <div style="border-bottom: 1px dashed var(--border-subtle); padding-bottom: 12px; margin-bottom: 12px;">
+              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 10px 0;">Execution Mode</h4>
+              <div class="fields-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 10px;">
+                <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
+                  <input type="checkbox" id="soloModeEnable" class="field-checkbox" />
+                  <label class="field-label" for="soloModeEnable" style="margin-bottom: 0; cursor: pointer;">
+                    Solo Mode (Disable Slaves)
+                  </label>
+                </div>
+                <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
+                  <input type="checkbox" id="remoteMasterEnable" class="field-checkbox" />
+                  <label class="field-label" for="remoteMasterEnable" style="margin-bottom: 0; cursor: pointer;">
+                    Run Master Node Remotely
+                  </label>
+                </div>
+              </div>
+
+              <!-- Remote Master SSH Credentials -->
+              <div id="remoteMasterCreds" class="fields-grid" style="display: none; padding-top: 8px; margin-top: 8px;">
+                <div class="field-row">
+                  <label class="field-label" for="masterRemoteHost">SSH Host</label>
+                  <input type="text" id="masterRemoteHost" class="field-input mono" placeholder="192.168.1.50" />
+                </div>
+                <div class="field-row">
+                  <label class="field-label" for="masterRemotePort">SSH Port</label>
+                  <input type="number" id="masterRemotePort" class="field-input" value="22" min="1" max="65535" />
+                </div>
+                <div class="field-row">
+                  <label class="field-label" for="masterRemoteUser">Username</label>
+                  <input type="text" id="masterRemoteUser" class="field-input mono" placeholder="ubuntu" />
+                </div>
+                <div class="field-row">
+                  <label class="field-label" for="masterRemotePass">Password / Key Passphrase</label>
+                  <input type="password" id="masterRemotePass" class="field-input" placeholder="Optional if key-based" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Broadcast Monitor -->
+            <div style="border-bottom: 1px dashed var(--border-subtle); padding-bottom: 12px; margin-bottom: 12px;">
+              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 10px 0;">Broadcast Monitor</h4>
+              <div class="fields-grid">
+                <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
+                  <input type="checkbox" id="broadcastEnable" class="field-checkbox" />
+                  <label class="field-label" for="broadcastEnable" style="margin-bottom: 0; cursor: pointer;">
+                    Enable Local Network Monitoring
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field-label" for="broadcastPort">
+                    Broadcast Port
+                    <span class="help-tip" data-tip="The HTTP port to serve the read-only dashboard on the local network.">?</span>
+                  </label>
+                  <select id="broadcastPort" class="field-input field-select">
+                    <option value="">Scanning for ports...</option>
+                  </select>
+                </div>
+              </div>
+              <div id="broadcastLinks" style="margin-top: 10px; font-size: 0.85em; color: var(--text-muted); display: none;"></div>
+            </div>
+
+            <!-- Desktop Integration -->
+            <div>
+              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 8px 0;">Desktop Integration</h4>
+              <p style="font-size: 0.85em; color: var(--text-muted); margin: 0 0 10px 0; line-height: 1.4;">
+                Create a desktop application shortcut (.desktop entry) to launch Llama Cluster Launcher directly from your applications menu.
+              </p>
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <button class="btn-launch" id="createShortcutBtn" style="padding: 6px 14px; font-size: 0.85em; margin: 0; background: linear-gradient(135deg, #8a2be2, #4a00e0); border: none; min-width: 190px; color: #fff;">
+                  ✨ Create Desktop Launcher
+                </button>
+                <span id="shortcutStatus" style="font-size: 0.85em; color: var(--text-muted);"></span>
+              </div>
+            </div>
+
           </div> <!-- /.section-content -->
         </div>
 
         <!-- GPU & Context -->
         <div class="form-section">
-          <h3 class="section-label">GPU & Context</h3>
-          <div class="fields-grid">
-            <div class="field-row">
-              <label class="field-label" for="ngl">
-                GPU Layers (-ngl)
-                <span class="help-tip" data-tip="Number of model layers to offload to GPU. 99 = offload everything possible. Lower values use more RAM.">?</span>
-              </label>
-              <div class="slider-row">
-                <input type="range" id="nglSlider" min="0" max="99" value="99" class="slider" />
-                <input type="number" id="ngl" class="field-input small" value="99" min="0" max="99" />
+          <div class="section-label-row collapse-header">
+            <h3 class="section-label">GPU &amp; Context</h3>
+            <span class="collapse-arrow">▾</span>
+          </div>
+          <div class="section-content">
+            <div class="fields-grid">
+              <div class="field-row">
+                <label class="field-label" for="ngl">
+                  GPU Layers (-ngl)
+                  <span class="help-tip" data-tip="Number of model layers to offload to GPU. 99 = offload everything possible. Lower values use more RAM.">?</span>
+                </label>
+                <div class="slider-row">
+                  <input type="range" id="nglSlider" min="0" max="99" value="99" class="slider" />
+                  <input type="number" id="ngl" class="field-input small" value="99" min="0" max="99" />
+                </div>
               </div>
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="contextSize">
-                Context Size (-c)
-                <span class="help-tip" data-tip="Maximum context window in tokens. Larger = more VRAM/RAM usage. 32768 is a good default for large models.">?</span>
-              </label>
-              <select id="contextSize" class="field-input field-select">
-                <option value="2048">2,048</option>
-                <option value="4096">4,096</option>
-                <option value="8192">8,192</option>
-                <option value="16384">16,384</option>
-                <option value="32768" selected>32,768</option>
-                <option value="65536">65,536</option>
-                <option value="131072">131,072</option>
-              </select>
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="ctk">
-                KV Cache Key Type (-ctk)
-                <span class="help-tip" data-tip="Quantization type for KV cache keys. q8_0 is a great balance between quality and VRAM savings. f16 = full precision.">?</span>
-              </label>
-              <select id="ctk" class="field-input field-select">
-                <option value="f32">f32 — Full precision</option>
-                <option value="f16">f16 — Half precision</option>
-                <option value="q8_0" selected>q8_0 — 8-bit (recommended)</option>
-                <option value="q4_0">q4_0 — 4-bit</option>
-                <option value="q4_1">q4_1 — 4-bit alt</option>
-              </select>
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="ctv">
-                KV Cache Value Type (-ctv)
-                <span class="help-tip" data-tip="Quantization type for KV cache values. q8_0 recommended. Higher precision = better quality but more VRAM.">?</span>
-              </label>
-              <select id="ctv" class="field-input field-select">
-                <option value="f32">f32 — Full precision</option>
-                <option value="f16">f16 — Half precision</option>
-                <option value="q8_0" selected>q8_0 — 8-bit (recommended)</option>
-                <option value="q4_0">q4_0 — 4-bit</option>
-                <option value="q4_1">q4_1 — 4-bit alt</option>
-              </select>
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="nParallel">
-                Parallel Slots (-np)
-                <span class="help-tip" data-tip="Number of simultaneous inference requests. Use 1 for single-user / best performance. Higher = more RAM.">?</span>
-              </label>
-              <input type="number" id="nParallel" class="field-input" value="1" min="1" max="16" />
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="flashAttn">
-                Flash Attention (--flash-attn)
-                <span class="help-tip" data-tip="Flash Attention reduces VRAM usage during inference by computing attention in tiles. 'auto' lets the model decide based on hardware support.">?</span>
-              </label>
-              <select id="flashAttn" class="field-input field-select">
-                <option value="auto">auto — default</option>
-                <option value="on">on — enable</option>
-                <option value="off">off — disable</option>
-              </select>
+              <div class="field-row">
+                <label class="field-label" for="contextSize">
+                  Context Size (-c)
+                  <span class="help-tip" data-tip="Maximum context window in tokens. Larger = more VRAM/RAM usage. 32768 is a good default for large models.">?</span>
+                </label>
+                <select id="contextSize" class="field-input field-select">
+                  <option value="2048">2,048</option>
+                  <option value="4096">4,096</option>
+                  <option value="8192">8,192</option>
+                  <option value="16384">16,384</option>
+                  <option value="32768" selected>32,768</option>
+                  <option value="65536">65,536</option>
+                  <option value="131072">131,072</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label class="field-label" for="ctk">
+                  KV Cache Key Type (-ctk)
+                  <span class="help-tip" data-tip="Quantization type for KV cache keys. q8_0 is a great balance between quality and VRAM savings. f16 = full precision.">?</span>
+                </label>
+                <select id="ctk" class="field-input field-select">
+                  <option value="f32">f32 — Full precision</option>
+                  <option value="f16">f16 — Half precision</option>
+                  <option value="q8_0" selected>q8_0 — 8-bit (recommended)</option>
+                  <option value="q4_0">q4_0 — 4-bit</option>
+                  <option value="q4_1">q4_1 — 4-bit alt</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label class="field-label" for="ctv">
+                  KV Cache Value Type (-ctv)
+                  <span class="help-tip" data-tip="Quantization type for KV cache values. q8_0 recommended. Higher precision = better quality but more VRAM.">?</span>
+                </label>
+                <select id="ctv" class="field-input field-select">
+                  <option value="f32">f32 — Full precision</option>
+                  <option value="f16">f16 — Half precision</option>
+                  <option value="q8_0" selected>q8_0 — 8-bit (recommended)</option>
+                  <option value="q4_0">q4_0 — 4-bit</option>
+                  <option value="q4_1">q4_1 — 4-bit alt</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label class="field-label" for="nParallel">
+                  Parallel Slots (-np)
+                  <span class="help-tip" data-tip="Number of simultaneous inference requests. Use 1 for single-user / best performance. Higher = more RAM.">?</span>
+                </label>
+                <input type="number" id="nParallel" class="field-input" value="1" min="1" max="16" />
+              </div>
+              <div class="field-row">
+                <label class="field-label" for="flashAttn">
+                  Flash Attention (--flash-attn)
+                  <span class="help-tip" data-tip="Flash Attention reduces VRAM usage during inference by computing attention in tiles. 'auto' lets the model decide based on hardware support.">?</span>
+                </label>
+                <select id="flashAttn" class="field-input field-select">
+                  <option value="auto">auto — default</option>
+                  <option value="on">on — enable</option>
+                  <option value="off">off — disable</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- Additional flags -->
         <div class="form-section">
-          <h3 class="section-label">Additional Flags</h3>
-          <div class="field-row">
-            <label class="field-label" for="masterExtraFlags">
-              Extra flags
-              <span class="help-tip clickable" id="extraFlagsHelp" title="Click to see all available flags">?</span>
-            </label>
-            <input type="text" id="masterExtraFlags" class="field-input mono" placeholder="e.g. --threads 8 --numa distribute" />
+          <div class="section-label-row collapse-header">
+            <h3 class="section-label">Additional Flags</h3>
+            <span class="collapse-arrow">▾</span>
           </div>
+          <div class="section-content">
+            <div class="field-row">
+              <label class="field-label" for="masterExtraFlags">
+                Extra flags
+                <span class="help-tip clickable" id="extraFlagsHelp" title="Click to see all available flags">?</span>
+              </label>
+              <input type="text" id="masterExtraFlags" class="field-input mono" placeholder="e.g. --threads 8 --numa distribute" />
+            </div>
+          </div>
+        </div>
+
+        <!-- System Preferences (collapsed by default) -->
+        <div class="form-section collapsed" id="section-preferences">
+          <div class="section-label-row collapse-header">
+            <h3 class="section-label">System Preferences</h3>
+            <span class="collapse-arrow">▾</span>
+          </div>
+          <div class="section-content">
+
+            <!-- Network settings -->
+            <div style="border-bottom: 1px dashed var(--border-subtle); padding-bottom: 12px; margin-bottom: 12px;">
+              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 10px 0;">Network Settings</h4>
+              <div class="fields-grid">
+                <div class="field-row">
+                  <label class="field-label" for="masterPort">
+                    Port
+                    <span class="help-tip" data-tip="The HTTP port llama-server listens on for API requests.">?</span>
+                  </label>
+                  <div class="port-row">
+                    <input type="number" id="masterPort" class="field-input" value="8080" min="1024" max="65535" />
+                    <span class="port-status" id="masterPortStatus" title="Port status"></span>
+                  </div>
+                </div>
+                <div class="field-row">
+                  <label class="field-label" for="masterHost">
+                    Bind Host
+                    <span class="help-tip" data-tip="Address to bind to. 0.0.0.0 accepts connections from any network interface.">?</span>
+                  </label>
+                  <input type="text" id="masterHost" class="field-input" value="0.0.0.0" />
+                </div>
+              </div>
+              <div class="field-row" style="margin-top: 10px;">
+                <label class="field-label" for="rpcAddresses">
+                  --rpc (slave addresses)
+                  <span class="help-tip" data-tip="Comma-separated list of RPC slave addresses (host:port). Auto-populated from your active slave nodes.">?</span>
+                </label>
+                <input type="text" id="rpcAddresses" class="field-input mono" placeholder="Auto-filled from slave nodes…" readonly />
+              </div>
+            </div>
+
+            <!-- Execution Mode -->
+            <div style="border-bottom: 1px dashed var(--border-subtle); padding-bottom: 12px; margin-bottom: 12px;">
+              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 10px 0;">Execution Mode</h4>
+              <div class="fields-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 10px;">
+                <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
+                  <input type="checkbox" id="soloModeEnable" class="field-checkbox" />
+                  <label class="field-label" for="soloModeEnable" style="margin-bottom: 0; cursor: pointer;">
+                    Solo Mode (Disable Slaves)
+                  </label>
+                </div>
+                <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
+                  <input type="checkbox" id="remoteMasterEnable" class="field-checkbox" />
+                  <label class="field-label" for="remoteMasterEnable" style="margin-bottom: 0; cursor: pointer;">
+                    Run Master Node Remotely
+                  </label>
+                </div>
+              </div>
+
+              <!-- Remote Master SSH Credentials -->
+              <div id="remoteMasterCreds" class="fields-grid" style="display: none; padding-top: 8px; margin-top: 8px;">
+                <div class="field-row">
+                  <label class="field-label" for="masterRemoteHost">SSH Host</label>
+                  <input type="text" id="masterRemoteHost" class="field-input mono" placeholder="192.168.1.50" />
+                </div>
+                <div class="field-row">
+                  <label class="field-label" for="masterRemotePort">SSH Port</label>
+                  <input type="number" id="masterRemotePort" class="field-input" value="22" min="1" max="65535" />
+                </div>
+                <div class="field-row">
+                  <label class="field-label" for="masterRemoteUser">Username</label>
+                  <input type="text" id="masterRemoteUser" class="field-input mono" placeholder="ubuntu" />
+                </div>
+                <div class="field-row">
+                  <label class="field-label" for="masterRemotePass">Password / Key Passphrase</label>
+                  <input type="password" id="masterRemotePass" class="field-input" placeholder="Optional if key-based" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Broadcast Monitor -->
+            <div style="border-bottom: 1px dashed var(--border-subtle); padding-bottom: 12px; margin-bottom: 12px;">
+              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 10px 0;">Broadcast Monitor</h4>
+              <div class="fields-grid">
+                <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
+                  <input type="checkbox" id="broadcastEnable" class="field-checkbox" />
+                  <label class="field-label" for="broadcastEnable" style="margin-bottom: 0; cursor: pointer;">
+                    Enable Local Network Monitoring
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field-label" for="broadcastPort">
+                    Broadcast Port
+                    <span class="help-tip" data-tip="The HTTP port to serve the read-only dashboard on the local network.">?</span>
+                  </label>
+                  <select id="broadcastPort" class="field-input field-select">
+                    <option value="">Scanning for ports...</option>
+                  </select>
+                </div>
+              </div>
+              <div id="broadcastLinks" style="margin-top: 10px; font-size: 0.85em; color: var(--text-muted); display: none;"></div>
+            </div>
+
+            <!-- Desktop Integration -->
+            <div>
+              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 8px 0;">Desktop Integration</h4>
+              <p style="font-size: 0.85em; color: var(--text-muted); margin: 0 0 10px 0; line-height: 1.4;">
+                Create a desktop application shortcut (.desktop entry) to launch Llama Cluster Launcher directly from your applications menu.
+              </p>
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <button class="btn-launch" id="createShortcutBtn" style="padding: 6px 14px; font-size: 0.85em; margin: 0; background: linear-gradient(135deg, #8a2be2, #4a00e0); border: none; min-width: 190px; color: #fff;">
+                  ✨ Create Desktop Launcher
+                </button>
+                <span id="shortcutStatus" style="font-size: 0.85em; color: var(--text-muted);"></span>
+              </div>
+            </div>
+
+          </div> <!-- /.section-content -->
         </div>
 
         <!-- Command preview -->
         <div class="form-section">
-          <div class="section-label-row">
+          <div class="section-label-row collapse-header">
             <h3 class="section-label">Command Preview</h3>
-            <button class="btn-copy" id="masterCopyCmd" title="Copy command">⎘ Copy</button>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button class="btn-copy" id="masterCopyCmd" title="Copy command">⎘ Copy</button>
+              <span class="collapse-arrow">▾</span>
+            </div>
           </div>
-          <div class="cmd-preview" id="masterCmdPreview"></div>
-        </div>
-
-        <!-- Launch button -->
-        <div class="launch-row">
-          <button class="btn-launch" id="masterLaunchBtn">
-            <span class="btn-launch-icon">▶</span>
-            Launch Master
-          </button>
+          <div class="section-content cmd-preview" id="masterCmdPreview" style="margin-top: 10px;"></div>
         </div>
 
         <div class="terminal-container" id="masterTermContainer">
-          <div class="terminal-header">
-            <span class="terminal-title">Output</span>
+          <div class="terminal-header collapse-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: rgba(0,0,0,0.2);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="collapse-arrow" style="font-size: 14px;">▾</span>
+              <span class="terminal-title">Output</span>
+            </div>
             <button class="btn-clear-term" id="masterClearTerm">Clear</button>
           </div>
-          <div class="terminal" id="masterTerminal"></div>
+          <div class="section-content terminal" id="masterTerminal" style="border-top: none;"></div>
         </div>
 
       </div><!-- /.panel-body -->
@@ -276,10 +496,11 @@
       
     <!-- ══════════════════ SLAVE PANEL ══════════════════ -->
     <div class="panel slave-panel" id="slavePanel">
-      <div class="panel-header">
+      <div class="panel-header" id="slavePanelHeader">
         <div class="panel-title-row">
           <h2 class="panel-title">Slave Nodes</h2>
           <button class="btn-add-slave" id="addSlaveBtn">+ Add Node</button>
+          <button class="btn-panel-collapse" id="slaveCollapseBtn" title="Minimize/Expand panel">▾</button>
         </div>
         <p class="panel-subtitle">Remote machines — rpc-server launched via SSH</p>
       </div>

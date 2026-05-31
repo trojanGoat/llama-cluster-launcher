@@ -1,0 +1,25 @@
+
+> llama-cluster-launcher@1.0.2 start
+> electron . --no-sandbox
+
+
+(electron:1622527): Gtk-WARNING **: 20:27:29.831: Theme parsing error: gtk.css:3:18: negative values are not allowed.
+
+(electron:1622527): Gtk-WARNING **: 20:27:29.831: Theme parsing error: gtk.css:30:19: negative values are not allowed.
+Error occurred in handler for 'llama:getVersionRemote': Error: Invalid username
+    at Client.connect (/Volumes/scratch2/z_PCLOUD/AG_projects/AG_llama_launcher/node_modules/ssh2/lib/client.js:203:13)
+    at /Volumes/scratch2/z_PCLOUD/AG_projects/AG_llama_launcher/main.js:601:8
+    at new Promise (<anonymous>)
+    at /Volumes/scratch2/z_PCLOUD/AG_projects/AG_llama_launcher/main.js:586:10
+    at WebContents.<anonymous> (node:electron/js2c/browser_init:2:78397)
+    at WebContents.emit (node:events:514:28)
+[Renderer] [init] FATAL ERROR during DOMContentLoaded: ReferenceError: setupBroadcastServer is not defined (file:///Volumes/scratch2/z_PCLOUD/AG_projects/AG_llama_launcher/src/renderer.js:50)
+[Renderer] %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged. (node:electron/js2c/sandbox_bundle:2)
+[Renderer] Uncaught (in promise) Error: Error invoking remote method 'llama:getVersionRemote': Error: Invalid username (file:///Volumes/scratch2/z_PCLOUD/AG_projects/AG_llama_launcher/src/renderer.js:563)

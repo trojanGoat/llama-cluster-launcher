@@ -53,5 +53,9 @@ contextBridge.exposeInMainWorld('api', {
   toggleBroadcastServer: (enabled, port) => ipcRenderer.invoke('server:toggle', { enabled, port }),
   findAvailablePorts: () => ipcRenderer.invoke('server:findPorts'),
   getLocalIPs: () => ipcRenderer.invoke('server:getLocalIPs'),
+
+  // Preferences & System
+  platform: process.platform,
+  createDesktopLauncher: () => ipcRenderer.invoke('preferences:createDesktopLauncher'),
 });
 

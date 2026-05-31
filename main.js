@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { exec, spawn } = require('child_process');
+const { exec, spawn, execSync } = require('child_process');
 const { Client: SSHClient } = require('ssh2');
 const Store = require('electron-store');
 const http = require('http');
@@ -72,6 +72,10 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[Renderer] ${message} (${sourceId}:${line})`);
+  });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -304,36 +308,79 @@ ipcMain.handle('port:checkRemote', (_, { host, port, username, password }) => {
   });
 });
 
-// ─── Launch Master (LOCAL) ───────────────────────────────────────────────────
-ipcMain.handle('master:launch', (_, { command, cwd }) => {
+// ─── Launch Master (LOCAL / REMOTE SSH) ──────────────────────────────────────
+ipcMain.handle('master:launch', (_, { command, cwd, remoteOpts }) => {
   if (runningProcesses.master) {
     return { success: false, error: 'Master is already running.' };
   }
-  try {
-    const args = command.split(/\s+/).filter(Boolean);
-    const bin = args.shift();
-    const proc = spawn(bin, args, { cwd: cwd || path.dirname(bin), shell: false });
 
-    runningProcesses.master = proc;
+  if (remoteOpts && remoteOpts.enabled) {
+    // Escape single quotes in command for safe bash -lc wrapping
+    const safeCmd = command.replace(/'/g, "'\\''");
+    const shellWrapped = `bash -lc '${safeCmd}'`;
 
-    proc.stdout.on('data', (data) => {
-      mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stdout' });
-    });
-    proc.stderr.on('data', (data) => {
-      mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stderr' });
-    });
-    proc.on('close', (code) => {
-      runningProcesses.master = null;
-      mainWindow?.webContents.send('master:stopped', { code });
-    });
-    proc.on('error', (err) => {
-      runningProcesses.master = null;
-      mainWindow?.webContents.send('master:error', { message: err.message });
-    });
+    const { host, port, username, password } = remoteOpts;
+    const creds = { host, port: parseInt(port, 10) || 22, username, password, readyTimeout: 10000 };
 
-    return { success: true, pid: proc.pid };
-  } catch (err) {
-    return { success: false, error: err.message };
+    return new Promise((resolve) => {
+      const conn = new SSHClient();
+
+      conn.on('ready', () => {
+        conn.exec(shellWrapped, (err, stream) => {
+          if (err) {
+            conn.end();
+            runningProcesses.master = null;
+            return resolve({ success: false, error: err.message });
+          }
+
+          runningProcesses.master = { conn, stream, creds, isRemote: true };
+
+          stream.on('data', (data) => {
+            mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stdout' });
+          });
+          stream.stderr.on('data', (data) => {
+            mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stderr' });
+          });
+          stream.on('close', (code) => {
+            conn.end();
+            runningProcesses.master = null;
+            mainWindow?.webContents.send('master:stopped', { code });
+          });
+
+          resolve({ success: true });
+        });
+      }).on('error', (err) => {
+        runningProcesses.master = null;
+        resolve({ success: false, error: err.message });
+      }).connect(creds);
+    });
+  } else {
+    try {
+      const args = command.split(/\s+/).filter(Boolean);
+      const bin = args.shift();
+      const proc = spawn(bin, args, { cwd: cwd || path.dirname(bin), shell: false });
+
+      runningProcesses.master = proc;
+
+      proc.stdout.on('data', (data) => {
+        mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stdout' });
+      });
+      proc.stderr.on('data', (data) => {
+        mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stderr' });
+      });
+      proc.on('close', (code) => {
+        runningProcesses.master = null;
+        mainWindow?.webContents.send('master:stopped', { code });
+      });
+      proc.on('error', (err) => {
+        runningProcesses.master = null;
+        mainWindow?.webContents.send('master:error', { message: err.message });
+      });
+
+      return { success: true, pid: proc.pid };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   }
 });
 
@@ -341,7 +388,20 @@ ipcMain.handle('master:launch', (_, { command, cwd }) => {
 ipcMain.handle('master:stop', () => {
   if (runningProcesses.master) {
     try {
-      runningProcesses.master.kill('SIGTERM');
+      if (runningProcesses.master.isRemote) {
+        const entry = runningProcesses.master;
+        // Send explicit remote kill before closing the connection
+        const killConn = new SSHClient();
+        if (entry.creds) {
+          killConn.on('ready', () => {
+            killConn.exec('pkill -f llama-server', () => { killConn.end(); });
+          }).on('error', () => {}).connect(entry.creds);
+        }
+        entry.stream?.close();
+        entry.conn?.end();
+      } else {
+        runningProcesses.master.kill('SIGTERM');
+      }
       runningProcesses.master = null;
       return { success: true };
     } catch (e) {
@@ -423,8 +483,34 @@ ipcMain.handle('slave:stop', (_, { slaveId }) => {
   return { success: false, error: 'Slave not running' };
 });
 
-// ─── GPU Stats (LOCAL) ──────────────────────────────────────────────────────
+// ─── GPU Stats (LOCAL / REMOTE SSH FOR MASTER) ───────────────────────────────
 ipcMain.handle('gpu:getStatsLocal', () => {
+  // If master is remote and running, fetch remote GPU stats instead!
+  if (runningProcesses.master && runningProcesses.master.isRemote && runningProcesses.master.conn) {
+    const entry = runningProcesses.master;
+    return new Promise((resolve) => {
+      const query = 'utilization.gpu,memory.used,memory.total,power.draw';
+      const cmd = `nvidia-smi --query-gpu=${query} --format=csv,noheader,nounits`;
+      
+      entry.conn.exec(cmd, (err, stream) => {
+        if (err) return resolve({ success: false, error: err.message });
+        let output = '';
+        stream.on('data', (d) => { output += d.toString(); });
+        stream.on('close', () => {
+          const parts = output.trim().split(',').map(s => s.trim());
+          if (parts.length < 4) return resolve({ success: false, error: 'Invalid output' });
+          resolve({
+            success: true,
+            util: parseInt(parts[0]),
+            memUsed: parseInt(parts[1]),
+            memTotal: parseInt(parts[2]),
+            power: parseFloat(parts[3])
+          });
+        });
+      });
+    });
+  }
+
   return new Promise((resolve) => {
     // utilization.gpu, memory.used, memory.total, power.draw
     const query = 'utilization.gpu,memory.used,memory.total,power.draw';
@@ -593,4 +679,81 @@ ipcMain.handle('server:getLocalIPs', () => {
     }
   }
   return results;
+});
+
+// ─── Desktop integration launcher for Linux ──────────────────────────────────
+ipcMain.handle('preferences:createDesktopLauncher', async () => {
+  if (process.platform !== 'linux') {
+    return { success: false, error: 'Only Linux/Ubuntu is supported for this feature.' };
+  }
+
+  try {
+    const appDir = app.getAppPath();
+    
+    // 1. Determining node bin dir
+    let nodeBinDir = '';
+    try {
+      const nodePath = execSync('which node').toString().trim();
+      nodeBinDir = path.dirname(nodePath);
+    } catch (e) {
+      // Fallback to checking PATH
+      const paths = (process.env.PATH || '').split(path.delimiter);
+      for (const p of paths) {
+        if (fs.existsSync(path.join(p, 'node'))) {
+          nodeBinDir = p;
+          break;
+        }
+      }
+    }
+
+    if (!nodeBinDir) {
+      nodeBinDir = '/usr/bin';
+    }
+
+    // 2. Generating the Wrapper Script (llama-cluster-launcher.sh) in the app directory
+    const wrapperPath = path.join(appDir, 'llama-cluster-launcher.sh');
+    const electronBin = path.join(appDir, 'node_modules', '.bin', 'electron');
+    const wrapperContent = `#!/bin/bash
+export PATH="${nodeBinDir}:$PATH"
+cd "${appDir}"
+"${electronBin}" . --no-sandbox
+`;
+    
+    fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
+    
+    // 3. Generating the Desktop Entry (~/.local/share/applications/llama-cluster-launcher.desktop)
+    const homeDir = os.homedir();
+    const desktopDir = path.join(homeDir, '.local', 'share', 'applications');
+    if (!fs.existsSync(desktopDir)) {
+      fs.mkdirSync(desktopDir, { recursive: true });
+    }
+    
+    const desktopPath = path.join(desktopDir, 'llama-cluster-launcher.desktop');
+    const iconPath = path.join(appDir, 'src', 'logos', 'llama_cluster_icon_v001.png');
+    
+    const desktopContent = `[Desktop Entry]
+Name=Llama Cluster Launcher
+Comment=GUI launcher for llama.cpp clustered inference
+Exec="${wrapperPath}"
+Icon=${iconPath}
+Terminal=false
+Type=Application
+Categories=Development;Utility;
+StartupNotify=true
+`;
+
+    fs.writeFileSync(desktopPath, desktopContent, 'utf8');
+    
+    // 4. Refreshing Desktop Database
+    try {
+      execSync(`update-desktop-database "${desktopDir}"`);
+    } catch (dbErr) {
+      console.warn('Failed to update-desktop-database:', dbErr);
+    }
+
+    return { success: true, path: desktopPath };
+  } catch (err) {
+    console.error('Error creating desktop launcher:', err);
+    return { success: false, error: err.message };
+  }
 });

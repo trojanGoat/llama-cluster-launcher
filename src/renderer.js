@@ -10,24 +10,45 @@ let masterGpuStats = null;
 
 // ─── Initialise ─────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadSettings();
-  setupMasterListeners();
-  setupMasterIPC();
-  setupSlaveIPC();
-  setupTooltips();
-  updateMasterPreview();
-  renderRpcField();
-  initTokenChart();
-  updateMasterVersion();
+  try {
+    await loadSettings();
+    setupMasterListeners();
+    setupMasterIPC();
+    setupSlaveIPC();
+    setupTooltips();
+    updateMasterPreview();
+    renderRpcField();
+    initTokenChart();
+    updateMasterVersion();
 
-  document.querySelectorAll('.collapse-header').forEach(header => {
-    header.addEventListener('click', () => {
-      header.closest('.form-section').classList.toggle('collapsed');
+    document.querySelectorAll('.collapse-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const parent = header.closest('.form-section') || header.closest('.terminal-container');
+        if (parent) parent.classList.toggle('collapsed');
+      });
     });
-  });
 
-  await setupBroadcastServer();
-  setInterval(syncClusterState, 2000);
+    // Panel collapse buttons
+    const masterCollapseBtn = document.getElementById('masterCollapseBtn');
+    if (masterCollapseBtn) {
+      masterCollapseBtn.addEventListener('click', () => {
+        document.getElementById('masterPanel').classList.toggle('panel-collapsed');
+      });
+    }
+    const slaveCollapseBtn = document.getElementById('slaveCollapseBtn');
+    if (slaveCollapseBtn) {
+      slaveCollapseBtn.addEventListener('click', () => {
+        document.getElementById('slavePanel').classList.toggle('panel-collapsed');
+      });
+    }
+
+    await setupBroadcastServer();
+    setupPreferences();
+    initPresets();
+    setInterval(syncClusterState, 2000);
+  } catch (err) {
+    console.error('[init] FATAL ERROR during DOMContentLoaded:', err);
+  }
 });
 
 // ─── Version checking ────────────────────────────────────────────────────────
@@ -72,6 +93,24 @@ async function loadSettings() {
   if (saved.broadcastEnable) {
     document.getElementById('broadcastEnable').checked = true;
   }
+
+  // Load solo and remote master settings
+  if (saved.soloModeEnable !== undefined) {
+    const soloCb = document.getElementById('soloModeEnable');
+    if (soloCb) soloCb.checked = saved.soloModeEnable;
+  }
+  if (saved.remoteMasterEnable !== undefined) {
+    const remoteCb = document.getElementById('remoteMasterEnable');
+    if (remoteCb) {
+      remoteCb.checked = saved.remoteMasterEnable;
+      const credsDiv = document.getElementById('remoteMasterCreds');
+      if (credsDiv) credsDiv.style.display = saved.remoteMasterEnable ? 'grid' : 'none';
+    }
+  }
+  setIfExists('masterRemoteHost', saved.masterRemoteHost);
+  setIfExists('masterRemotePort', saved.masterRemotePort || '22');
+  setIfExists('masterRemoteUser', saved.masterRemoteUser);
+  setIfExists('masterRemotePass', saved.masterRemotePass);
 }
 
 function setIfExists(id, value) {
@@ -88,26 +127,6 @@ function saveAllSlaves() {
   const configs = slaves.map(s => s.config);
   saveSetting('slaves', configs);
 }
-
-// ─── Master listeners ─────────────────────────────────────────────────────────
-function setupMasterListeners() {
-  const liveFields = [
-    'masterBinPath','modelPath','masterPort','masterHost',
-    'ngl','contextSize','ctk','ctv','nParallel','masterExtraFlags','flashAttn'
-  ];
-
-  liveFields.forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('input', () => {
-      updateMasterPreview();
-      saveSetting(id, el.value);
-    });
-    el.addEventListener('change', () => {
-      updateMasterPreview();
-      saveSetting(id, el.value);
-    });
-  });
 
 // ─── Broadcast Server Sync ───────────────────────────────────────────────────
 async function setupBroadcastServer() {
@@ -179,6 +198,28 @@ function syncClusterState() {
   };
   window.api.updateClusterState(state);
 }
+
+// ─── Master listeners ─────────────────────────────────────────────────────────
+function setupMasterListeners() {
+  const liveFields = [
+    'masterBinPath','modelPath','masterPort','masterHost',
+    'ngl','contextSize','ctk','ctv','nParallel','masterExtraFlags','flashAttn'
+  ];
+
+  liveFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      updateMasterPreview();
+      saveSetting(id, el.value);
+    });
+    el.addEventListener('change', () => {
+      updateMasterPreview();
+      saveSetting(id, el.value);
+    });
+  });
+
+
 
   // NGL slider sync
   const nglSlider = document.getElementById('nglSlider');
@@ -258,6 +299,34 @@ document.getElementById('masterBinPath').addEventListener('blur', updateMasterVe
 
   // Launch / Stop
   document.getElementById('masterLaunchBtn').addEventListener('click', handleMasterLaunch);
+
+  // Execution Mode Listeners
+  const execFields = ['masterRemoteHost', 'masterRemotePort', 'masterRemoteUser', 'masterRemotePass'];
+  execFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', () => {
+        saveSetting(id, el.value);
+      });
+    }
+  });
+
+  const soloCb = document.getElementById('soloModeEnable');
+  if (soloCb) {
+    soloCb.addEventListener('change', () => {
+      updateMasterPreview();
+      saveSetting('soloModeEnable', soloCb.checked);
+    });
+  }
+
+  const remoteCb = document.getElementById('remoteMasterEnable');
+  if (remoteCb) {
+    remoteCb.addEventListener('change', () => {
+      const credsDiv = document.getElementById('remoteMasterCreds');
+      if (credsDiv) credsDiv.style.display = remoteCb.checked ? 'grid' : 'none';
+      saveSetting('remoteMasterEnable', remoteCb.checked);
+    });
+  }
 }
 
 // ─── Master command preview ───────────────────────────────────────────────────
@@ -272,7 +341,8 @@ function buildMasterCommand() {
   const ctv     = document.getElementById('ctv').value;
   const npar    = document.getElementById('nParallel').value.trim();
   const extra   = document.getElementById('masterExtraFlags').value.trim();
-  const rpc     = document.getElementById('rpcAddresses').value.trim();
+  const isSolo  = document.getElementById('soloModeEnable').checked;
+  const rpc     = isSolo ? '' : document.getElementById('rpcAddresses').value.trim();
   const flashAttn = document.getElementById('flashAttn').value;
 
   let cmd = bin;
@@ -323,7 +393,18 @@ async function handleMasterLaunch() {
   // Port check before launch — read-only
   const portEl = document.getElementById('masterPort');
   const port = parseInt(portEl.value);
-  const portCheck = await window.api.checkPortLocal(port);
+  
+  const isRemote = document.getElementById('remoteMasterEnable').checked;
+  let portCheck;
+  if (isRemote) {
+    const host = document.getElementById('masterRemoteHost').value.trim();
+    const username = document.getElementById('masterRemoteUser').value.trim();
+    const password = document.getElementById('masterRemotePass').value.trim();
+    portCheck = await window.api.checkPortRemote({ host, port, username, password });
+  } else {
+    portCheck = await window.api.checkPortLocal(port);
+  }
+
   if (portCheck.inUse) {
     logMaster(`❌ Port ${port} is already in use. Please choose a different port.`, 'warn');
     document.getElementById('masterPortStatus').className = 'port-status used';
@@ -336,11 +417,19 @@ async function handleMasterLaunch() {
   setMasterStatus('starting');
   logMaster(`▶ Launching: ${command}`, 'info');
 
-  const result = await window.api.launchMaster({ command });
+  const remoteOpts = {
+    enabled: isRemote,
+    host: document.getElementById('masterRemoteHost').value.trim(),
+    port: document.getElementById('masterRemotePort').value.trim() || '22',
+    username: document.getElementById('masterRemoteUser').value.trim(),
+    password: document.getElementById('masterRemotePass').value.trim()
+  };
+
+  const result = await window.api.launchMaster({ command, remoteOpts });
   if (result.success) {
     masterRunning = true;
     setMasterStatus('running');
-    logMaster(`✓ Master started (PID ${result.pid})`, 'success');
+    logMaster(`✓ Master started (PID ${result.pid || 'remote'})`, 'success');
   } else {
     setMasterStatus('error');
     logMaster(`❌ Failed to launch: ${result.error}`, 'stderr');
@@ -374,16 +463,34 @@ function setMasterStatus(status) {
   }
 }
 
+// Buffer for incomplete terminal lines
+let masterTerminalBuffer = '';
+
 // ─── Master IPC callbacks ─────────────────────────────────────────────────────
 function setupMasterIPC() {
   window.api.onMasterOutput(({ text, stream }) => {
-    text.split('\n').forEach(line => {
-      if (!line) return;
+    masterTerminalBuffer += text;
+    
+    // Process all complete lines
+    let newlineIndex;
+    while ((newlineIndex = masterTerminalBuffer.indexOf('\n')) !== -1) {
+      let line = masterTerminalBuffer.slice(0, newlineIndex);
+      masterTerminalBuffer = masterTerminalBuffer.slice(newlineIndex + 1);
+      
+      // Handle carriage returns (\r) by only keeping the text after the last \r
+      const lastCrIndex = line.lastIndexOf('\r');
+      if (lastCrIndex !== -1) {
+        line = line.slice(lastCrIndex + 1);
+      }
+      
+      if (!line) continue;
+      
       const cls = stream === 'stderr' ? 'stderr' : detectLineClass(line);
       logMaster(line, cls);
       
-      // Parse token usage from llama.cpp output
-      // e.g. "total time =   36185.07 ms /   548 tokens" or "548 token"
+      // Parse token usage from llama.cpp output (supporting multiple timing format variations)
+      // We ONLY match 'total time' to prevent triple counting.
+      // llama-server outputs the same token count in `total time`, `slot release`, and JSON logs.
       const tokenMatch = line.match(/total time\s*=\s*[\d.]+\s*ms\s*\/\s*(\d+)\s*tokens?/i);
       if (tokenMatch) {
         const tokensUsed = parseInt(tokenMatch[1], 10);
@@ -399,7 +506,7 @@ function setupMasterIPC() {
           }
         }
       }
-    });
+    }
   });
 
   window.api.onMasterStopped(({ code }) => {
@@ -1229,6 +1336,256 @@ if (aboutModalOverlay) {
     if (e.target === aboutModalOverlay) {
       closeAbout();
     }
+  });
+}
+
+/* ─── Preferences / System Settings ─────────────────────────── */
+function setupPreferences() {
+  const createShortcutBtn = document.getElementById('createShortcutBtn');
+  const shortcutStatus = document.getElementById('shortcutStatus');
+
+  if (!createShortcutBtn) return;
+
+  // Check platform
+  if (window.api.platform !== 'linux') {
+    createShortcutBtn.disabled = true;
+    createShortcutBtn.style.opacity = '0.5';
+    createShortcutBtn.style.cursor = 'not-allowed';
+    if (shortcutStatus) {
+      shortcutStatus.textContent = 'Only supported on Linux/Ubuntu';
+      shortcutStatus.style.color = '#ff6b6b';
+    }
+    return;
+  }
+
+  createShortcutBtn.addEventListener('click', async () => {
+    createShortcutBtn.disabled = true;
+    createShortcutBtn.textContent = '⏳ Creating launcher...';
+    if (shortcutStatus) {
+      shortcutStatus.textContent = '';
+      shortcutStatus.style.color = 'var(--text-muted)';
+    }
+
+    try {
+      const res = await window.api.createDesktopLauncher();
+      if (res.success) {
+        createShortcutBtn.textContent = '✓ Created';
+        createShortcutBtn.style.background = 'linear-gradient(135deg, #11998e, #38ef7d)';
+        if (shortcutStatus) {
+          shortcutStatus.textContent = 'Created successfully! Search "Llama Cluster Launcher" in applications.';
+          shortcutStatus.style.color = '#38ef7d';
+        }
+        
+        // Show desktop notification
+        new Notification('Llama Cluster Launcher', {
+          body: 'Launcher created! Search "Llama Cluster Launcher" in your applications to pin it.',
+          icon: 'logos/llama_cluster_icon_v001.png'
+        });
+      } else {
+        createShortcutBtn.disabled = false;
+        createShortcutBtn.textContent = '✨ Create Desktop Launcher';
+        if (shortcutStatus) {
+          shortcutStatus.textContent = `Error: ${res.error}`;
+          shortcutStatus.style.color = '#ff6b6b';
+        }
+      }
+    } catch (err) {
+      createShortcutBtn.disabled = false;
+      createShortcutBtn.textContent = '✨ Create Desktop Launcher';
+      if (shortcutStatus) {
+        shortcutStatus.textContent = `Exception: ${err.message}`;
+        shortcutStatus.style.color = '#ff6b6b';
+      }
+    }
+  });
+}
+
+/* ─── Config Presets Management ─────────────────────────────── */
+async function loadPresetsList() {
+  const select = document.getElementById('presetSelect');
+  if (!select) return;
+
+  // Clear options except first
+  select.innerHTML = '<option value="">-- No Preset Loaded --</option>';
+
+  const saved = await window.api.storeGet('presets') || {};
+  Object.keys(saved).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    select.appendChild(opt);
+  });
+}
+
+function initPresets() {
+  const select = document.getElementById('presetSelect');
+  const saveBtn = document.getElementById('savePresetBtn');
+  const deleteBtn = document.getElementById('deletePresetBtn');
+  const nameRow = document.getElementById('presetNameRow');
+  const nameInput = document.getElementById('presetNameInput');
+  const confirmBtn = document.getElementById('confirmSavePresetBtn');
+  const cancelBtn = document.getElementById('cancelSavePresetBtn');
+
+  if (!select || !saveBtn || !deleteBtn) return;
+
+  loadPresetsList();
+
+  // Helper: collect current settings snapshot
+  function collectSettings() {
+    return {
+      masterBinPath: document.getElementById('masterBinPath').value,
+      modelPath: document.getElementById('modelPath').value,
+      masterPort: document.getElementById('masterPort').value,
+      masterHost: document.getElementById('masterHost').value,
+      ngl: document.getElementById('ngl').value,
+      contextSize: document.getElementById('contextSize').value,
+      ctk: document.getElementById('ctk').value,
+      ctv: document.getElementById('ctv').value,
+      nParallel: document.getElementById('nParallel').value,
+      masterExtraFlags: document.getElementById('masterExtraFlags').value,
+      flashAttn: document.getElementById('flashAttn').value,
+      soloModeEnable: document.getElementById('soloModeEnable').checked,
+      remoteMasterEnable: document.getElementById('remoteMasterEnable').checked,
+      masterRemoteHost: document.getElementById('masterRemoteHost').value,
+      masterRemotePort: document.getElementById('masterRemotePort').value,
+      masterRemoteUser: document.getElementById('masterRemoteUser').value,
+      masterRemotePass: document.getElementById('masterRemotePass').value
+    };
+  }
+
+  // Show inline name entry row
+  function showNameRow() {
+    if (nameRow) {
+      nameRow.style.display = 'flex';
+      if (nameInput) {
+        nameInput.value = select.value || '';
+        nameInput.focus();
+        nameInput.select();
+      }
+    }
+  }
+
+  function hideNameRow() {
+    if (nameRow) nameRow.style.display = 'none';
+    if (nameInput) nameInput.value = '';
+  }
+
+  async function doSave() {
+    const name = nameInput ? nameInput.value.trim() : '';
+    if (!name) {
+      if (nameInput) nameInput.focus();
+      return;
+    }
+    hideNameRow();
+
+    try {
+      const presets = await window.api.storeGet('presets') || {};
+      presets[name] = collectSettings();
+      await window.api.storeSet('presets', presets);
+      await loadPresetsList();
+      select.value = name;
+
+      // Flash save button to confirm
+      const origHTML = saveBtn.innerHTML;
+      saveBtn.innerHTML = '✅ Saved!';
+      saveBtn.style.color = '#38ef7d';
+      setTimeout(() => { saveBtn.innerHTML = origHTML; saveBtn.style.color = ''; }, 2000);
+    } catch (err) {
+      console.error('Preset save error:', err);
+      const origHTML = saveBtn.innerHTML;
+      saveBtn.innerHTML = '❌ Error';
+      saveBtn.style.color = '#ff6b6b';
+      setTimeout(() => { saveBtn.innerHTML = origHTML; saveBtn.style.color = ''; }, 2500);
+    }
+  }
+
+  // Wire up Save button → show name row
+  saveBtn.addEventListener('click', showNameRow);
+
+  // Confirm button → save
+  if (confirmBtn) confirmBtn.addEventListener('click', doSave);
+
+  // Cancel button → hide row
+  if (cancelBtn) cancelBtn.addEventListener('click', hideNameRow);
+
+  // Enter key in name input → save; Escape → cancel
+  if (nameInput) {
+    nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+      if (e.key === 'Escape') { e.preventDefault(); hideNameRow(); }
+    });
+  }
+
+
+  // Load a preset
+  select.addEventListener('change', async () => {
+    const name = select.value;
+    if (!name) return;
+
+    const presets = await window.api.storeGet('presets') || {};
+    const cfg = presets[name];
+    if (!cfg) return;
+
+    setIfExists('masterBinPath', cfg.masterBinPath);
+    setIfExists('modelPath', cfg.modelPath);
+    setIfExists('masterPort', cfg.masterPort);
+    setIfExists('masterHost', cfg.masterHost);
+    setIfExists('ngl', cfg.ngl);
+    setIfExists('contextSize', cfg.contextSize);
+    setIfExists('ctk', cfg.ctk);
+    setIfExists('ctv', cfg.ctv);
+    setIfExists('nParallel', cfg.nParallel);
+    setIfExists('masterExtraFlags', cfg.masterExtraFlags);
+    setIfExists('flashAttn', cfg.flashAttn);
+
+    if (cfg.modelPath) updateModelChip(cfg.modelPath);
+    if (cfg.ngl !== undefined) {
+      const nglSlider = document.getElementById('nglSlider');
+      if (nglSlider) nglSlider.value = cfg.ngl;
+    }
+
+    if (cfg.soloModeEnable !== undefined) {
+      document.getElementById('soloModeEnable').checked = cfg.soloModeEnable;
+    }
+    if (cfg.remoteMasterEnable !== undefined) {
+      document.getElementById('remoteMasterEnable').checked = cfg.remoteMasterEnable;
+      const credsDiv = document.getElementById('remoteMasterCreds');
+      if (credsDiv) credsDiv.style.display = cfg.remoteMasterEnable ? 'grid' : 'none';
+    }
+    setIfExists('masterRemoteHost', cfg.masterRemoteHost);
+    setIfExists('masterRemotePort', cfg.masterRemotePort || '22');
+    setIfExists('masterRemoteUser', cfg.masterRemoteUser);
+    setIfExists('masterRemotePass', cfg.masterRemotePass);
+
+    // Save active loaded setting fields
+    const fieldsToSave = [
+      'masterBinPath','modelPath','masterPort','masterHost',
+      'ngl','contextSize','ctk','ctv','nParallel','masterExtraFlags','flashAttn',
+      'masterRemoteHost','masterRemotePort','masterRemoteUser','masterRemotePass'
+    ];
+    fieldsToSave.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) saveSetting(id, el.value);
+    });
+    saveSetting('soloModeEnable', document.getElementById('soloModeEnable').checked);
+    saveSetting('remoteMasterEnable', document.getElementById('remoteMasterEnable').checked);
+
+    updateMasterPreview();
+    updateMasterVersion();
+  });
+
+  // Delete active preset
+  deleteBtn.addEventListener('click', async () => {
+    const name = select.value;
+    if (!name) return;
+
+    if (!confirm(`Are you sure you want to delete preset "${name}"?`)) return;
+
+    const presets = await window.api.storeGet('presets') || {};
+    delete presets[name];
+    await window.api.storeSet('presets', presets);
+
+    await loadPresetsList();
   });
 }
 
