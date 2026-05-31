@@ -455,11 +455,17 @@ function setMasterStatus(status) {
     btn.innerHTML = `<span class="btn-launch-icon">■</span> Stop Master`;
     masterRunning = true;
     document.getElementById('masterGpuMonitor').style.display = 'flex';
+    
+    const host = document.getElementById('masterHost').value;
+    const port = document.getElementById('masterPort').value;
+    const displayHost = host === '0.0.0.0' ? 'localhost' : host;
+    document.getElementById('masterTitleText').textContent = `${displayHost}:${port}`;
   } else {
     btn.classList.remove('running');
     btn.innerHTML = `<span class="btn-launch-icon">▶</span> Launch Master`;
     masterRunning = false;
     document.getElementById('masterGpuMonitor').style.display = 'none';
+    document.getElementById('masterTitleText').textContent = 'Master Node';
   }
 }
 
@@ -591,8 +597,9 @@ function buildSlaveCard(state) {
         <div class="status-orb" id="orb_${id}"></div>
         <input class="slave-label-input" id="label_${id}" type="text"
           placeholder="Node name" value="${esc(config.label)}" />
-        <span id="version_${id}" style="font-size: 0.6em; color: #888; margin-left: 10px; font-weight: normal;"></span>
-        <span class="collapse-arrow" id="arrow_${id}">▾</span>
+        <span class="slave-run-label" id="runLabel_${id}" style="display: none; font-weight: 700; font-size: 13px; color: var(--text-primary);"></span>
+        <span id="version_${id}" style="font-size: 11px; color: var(--text-muted); margin-left: 10px; font-weight: normal; vertical-align: middle;"></span>
+        <span class="collapse-arrow" id="arrow_${id}" style="margin-left: auto;">▾</span>
       </div>
       <div class="slave-header-actions">
         <span class="slave-status-text" id="statusText_${id}">Stopped</span>
@@ -626,21 +633,22 @@ function buildSlaveCard(state) {
           <input type="text" id="bin_${id}" class="field-input mono" placeholder="~/llama.cpp/build/bin/rpc-server" value="${esc(config.binPath)}" />
         </div>
       </div>
-      <!-- RPC config -->
-      <div class="slave-field-group">
-        <div class="slave-field-label">
-          RPC Port (-p)
-          <span class="help-tip" data-tip="Port rpc-server listens on. Must match the port in master's --rpc flag (e.g. 52396). Checked on the remote machine via SSH before launch.">?</span>
+      <!-- RPC config & Extra flags -->
+      <div class="slave-fields-row">
+        <div class="slave-field-group">
+          <div class="slave-field-label">
+            RPC Port (-p)
+            <span class="help-tip" data-tip="Port rpc-server listens on. Must match the port in master's --rpc flag (e.g. 52396). Checked on the remote machine via SSH before launch.">?</span>
+          </div>
+          <div class="port-row">
+            <input type="number" id="port_${id}" class="field-input" value="${esc(config.port)}" min="1024" max="65535" />
+            <span class="port-status" id="portStatus_${id}" title="Remote port status"></span>
+          </div>
         </div>
-        <div class="port-row">
-          <input type="number" id="port_${id}" class="field-input" value="${esc(config.port)}" min="1024" max="65535" />
-          <span class="port-status" id="portStatus_${id}" title="Remote port status"></span>
+        <div class="slave-field-group">
+          <div class="slave-field-label">Additional Flags</div>
+          <input type="text" id="extra_${id}" class="field-input mono" placeholder="e.g. --mem-base 0" value="${esc(config.extraFlags)}" />
         </div>
-      </div>
-      <!-- Extra flags -->
-      <div class="slave-field-group">
-        <div class="slave-field-label">Additional Flags</div>
-        <input type="text" id="extra_${id}" class="field-input mono" placeholder="e.g. --mem-base 0" value="${esc(config.extraFlags)}" />
       </div>
       <!-- Command preview -->
       <div class="slave-cmd-row">
@@ -869,11 +877,26 @@ function setSlaveStatus(state, card, status) {
     btn.textContent = '■ Stop';
     state.running = true;
     if (monitor) monitor.style.display = 'flex';
+    
+    const labelInput = card.querySelector(`#label_${id}`);
+    const runLabel = card.querySelector(`#runLabel_${id}`);
+    if (labelInput && runLabel) {
+      labelInput.style.display = 'none';
+      runLabel.textContent = `${state.config.ip}:${state.config.port}`;
+      runLabel.style.display = 'inline';
+    }
   } else {
     btn.className = 'btn-slave-launch';
     btn.textContent = '▶ Launch';
     state.running = false;
     if (monitor) monitor.style.display = 'none';
+    
+    const labelInput = card.querySelector(`#label_${id}`);
+    const runLabel = card.querySelector(`#runLabel_${id}`);
+    if (labelInput && runLabel) {
+      labelInput.style.display = 'inline-block';
+      runLabel.style.display = 'none';
+    }
   }
 }
 
