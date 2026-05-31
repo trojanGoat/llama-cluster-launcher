@@ -573,9 +573,12 @@ ipcMain.handle('ssh:test', (_, { host, username, password }) => {
 ipcMain.handle('llama:getVersionLocal', async (_, binPath) => {
   return new Promise(resolve => {
     if (!binPath) return resolve({ success: false });
-    exec(`"${binPath}" --version`, (err, stdout, stderr) => {
-      if (err && !stdout && !stderr) return resolve({ success: false });
+    exec(`"${binPath}" --version || "${binPath}" -v`, (err, stdout, stderr) => {
       const out = (stdout || '').trim() || (stderr || '').trim();
+      const buildMatch = out.match(/build\s+(\d+)\s*\(([^)]+)\)/i);
+      if (buildMatch) {
+         return resolve({ success: true, version: `build ${buildMatch[1]} (${buildMatch[2]})` });
+      }
       const firstLine = out.split('\n')[0].trim();
       resolve({ success: true, version: firstLine });
     });
@@ -586,13 +589,21 @@ ipcMain.handle('llama:getVersionRemote', async (_, req) => {
   return new Promise(resolve => {
     const conn = new SSHClient();
     conn.on('ready', () => {
-      conn.exec(`"${req.binPath}" --version`, (err, stream) => {
+      const binDir = req.binPath.substring(0, req.binPath.lastIndexOf('/'));
+      const llamaServerPath = binDir ? `${binDir}/llama-server` : 'llama-server';
+      const cmd = `"${req.binPath}" --version 2>&1 || "${llamaServerPath}" -v 2>&1 || "${llamaServerPath}" --version 2>&1`;
+
+      conn.exec(cmd, (err, stream) => {
         if (err) { conn.end(); return resolve({ success: false }); }
         let out = '';
         stream.on('data', d => out += d.toString())
               .on('stderr', d => out += d.toString())
               .on('close', () => {
                 conn.end();
+                const buildMatch = out.match(/build\s+(\d+)\s*\(([^)]+)\)/i);
+                if (buildMatch) {
+                   return resolve({ success: true, version: `build ${buildMatch[1]} (${buildMatch[2]})` });
+                }
                 const firstLine = out.split('\n')[0].trim();
                 resolve({ success: true, version: firstLine });
               });
