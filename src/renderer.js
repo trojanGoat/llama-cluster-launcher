@@ -3,6 +3,7 @@
 // ─── State ──────────────────────────────────────────────────────────────────
 let slaves = [];           // Array of slave config objects
 let masterRunning = false;
+let masterStatus = 'stopped';
 let slaveCounter = 0;
 let todayTotalTokens = 0;
 let tokenChart = null;
@@ -20,6 +21,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderRpcField();
     initTokenChart();
     updateMasterVersion();
+
+    const appInfo = await window.api.getAppVersionInfo();
+    const versionDisplay = document.getElementById('appVersionDisplay');
+    if (versionDisplay) {
+      versionDisplay.textContent = `v${appInfo.version} (${appInfo.branch})`;
+    }
 
     document.querySelectorAll('.collapse-header').forEach(header => {
       header.addEventListener('click', () => {
@@ -293,7 +300,8 @@ document.getElementById('masterBinPath').addEventListener('blur', updateMasterVe
   });
 
   // Clear terminal
-  document.getElementById('masterClearTerm').addEventListener('click', () => {
+  document.getElementById('masterClearTerm').addEventListener('click', (e) => {
+    e.stopPropagation();
     document.getElementById('masterTerminal').innerHTML = '';
   });
 
@@ -406,9 +414,43 @@ async function handleMasterLaunch() {
   }
 
   if (portCheck.inUse) {
-    logMaster(`❌ Port ${port} is already in use. Please choose a different port.`, 'warn');
-    document.getElementById('masterPortStatus').className = 'port-status used';
-    return;
+    if (portCheck.pid) {
+      const pName = portCheck.processName || 'unknown process';
+      const machineType = isRemote ? 'remote machine' : 'local machine';
+      const confirmKill = confirm(`Port ${port} is currently taken by '${pName}' (PID: ${portCheck.pid}) on the ${machineType}.\n\nWould you like to kill this process and proceed?`);
+      if (confirmKill) {
+        if (isRemote) {
+          const host = document.getElementById('masterRemoteHost').value.trim();
+          const username = document.getElementById('masterRemoteUser').value.trim();
+          const password = document.getElementById('masterRemotePass').value.trim();
+          await window.api.killPortRemote({ host, pid: portCheck.pid, username, password });
+          await new Promise(r => setTimeout(r, 500));
+          const recheck = await window.api.checkPortRemote({ host, port, username, password });
+          if (recheck.inUse) {
+            logMaster(`❌ Failed to kill remote process on port ${port}.`, 'error');
+            document.getElementById('masterPortStatus').className = 'port-status used';
+            return;
+          }
+        } else {
+          await window.api.killPortLocal(portCheck.pid);
+          await new Promise(r => setTimeout(r, 500)); // wait for port to be freed
+          const recheck = await window.api.checkPortLocal(port);
+          if (recheck.inUse) {
+            logMaster(`❌ Failed to kill process on port ${port}.`, 'error');
+            document.getElementById('masterPortStatus').className = 'port-status used';
+            return;
+          }
+        }
+      } else {
+        logMaster(`❌ Port ${port} is in use.`, 'warn');
+        document.getElementById('masterPortStatus').className = 'port-status used';
+        return;
+      }
+    } else {
+      logMaster(`❌ Port ${port} is already in use. Please choose a different port.`, 'warn');
+      document.getElementById('masterPortStatus').className = 'port-status used';
+      return;
+    }
   }
 
   const command = buildMasterCommand();
@@ -428,15 +470,46 @@ async function handleMasterLaunch() {
   const result = await window.api.launchMaster({ command, remoteOpts });
   if (result.success) {
     masterRunning = true;
-    setMasterStatus('running');
+    setMasterStatus('warming');
     logMaster(`✓ Master started (PID ${result.pid || 'remote'})`, 'success');
+    startHealthPolling();
   } else {
     setMasterStatus('error');
     logMaster(`❌ Failed to launch: ${result.error}`, 'stderr');
   }
 }
 
+let healthPollInterval = null;
+
+function startHealthPolling() {
+  if (healthPollInterval) clearInterval(healthPollInterval);
+  
+  const isRemote = document.getElementById('remoteMasterEnable').checked;
+  const host = isRemote ? document.getElementById('masterRemoteHost').value.trim() : (document.getElementById('masterHost') ? document.getElementById('masterHost').value.trim() : '127.0.0.1');
+  const port = document.getElementById('masterPort').value.trim() || '8080';
+
+  healthPollInterval = setInterval(async () => {
+    if (!masterRunning) {
+      clearInterval(healthPollInterval);
+      return;
+    }
+    if (masterStatus === 'stopped' || masterStatus === 'warming' || masterStatus === 'starting' || masterStatus === 'error') return;
+    
+    try {
+      const data = await window.api.checkHealth({ host: host || '127.0.0.1', port });
+      if (data && typeof data.slots_processing === 'number') {
+        if (data.slots_processing > 0) {
+          setMasterStatus('busy');
+        } else if (masterStatus === 'busy' && data.slots_processing === 0) {
+          setMasterStatus('idle');
+        }
+      }
+    } catch (e) {}
+  }, 1000);
+}
+
 function setMasterStatus(status) {
+  masterStatus = status;
   const orb   = document.getElementById('masterOrb');
   const badge = document.getElementById('masterStatusBadge');
   const btn   = document.getElementById('masterLaunchBtn');
@@ -445,10 +518,10 @@ function setMasterStatus(status) {
   orb.className = `status-orb ${status === 'stopped' ? '' : status}`;
   badge.className = `status-badge ${status === 'stopped' ? '' : status}`;
 
-  const labels = { stopped:'Stopped', starting:'Starting…', running:'Running', error:'Error' };
+  const labels = { stopped:'Stopped', starting:'Starting…', warming:'Warming Up…', running:'Running', idle:'Idle', busy:'Busy', error:'Error' };
   badge.textContent = labels[status] || status;
 
-  if (status === 'running') {
+  if (status === 'running' || status === 'idle' || status === 'busy' || status === 'warming') {
     btn.classList.add('running');
     icon.textContent = '■';
     btn.querySelector('span:last-child') || (btn.lastChild.textContent = '');
@@ -469,6 +542,8 @@ function setMasterStatus(status) {
   }
 }
 
+let masterBusyTimeout = null;
+
 // Buffer for incomplete terminal lines
 let masterTerminalBuffer = '';
 
@@ -476,27 +551,36 @@ let masterTerminalBuffer = '';
 function setupMasterIPC() {
   window.api.onMasterOutput(({ text, stream }) => {
     masterTerminalBuffer += text;
-    
-    // Process all complete lines
-    let newlineIndex;
-    while ((newlineIndex = masterTerminalBuffer.indexOf('\n')) !== -1) {
-      let line = masterTerminalBuffer.slice(0, newlineIndex);
-      masterTerminalBuffer = masterTerminalBuffer.slice(newlineIndex + 1);
+    let match;
+    while ((match = masterTerminalBuffer.match(/[\r\n]/)) !== null) {
+      let newlineIndex = match.index;
+      let char = match[0];
+      let isCRLF = char === '\r' && masterTerminalBuffer[newlineIndex + 1] === '\n';
       
-      // Handle carriage returns (\r) by only keeping the text after the last \r
-      const lastCrIndex = line.lastIndexOf('\r');
-      if (lastCrIndex !== -1) {
-        line = line.slice(lastCrIndex + 1);
+      let line = masterTerminalBuffer.slice(0, newlineIndex);
+      masterTerminalBuffer = masterTerminalBuffer.slice(newlineIndex + (isCRLF ? 2 : 1));
+      
+      if (!line && isCRLF) continue; // skip empty line if it was just CRLF
+      
+      let overwrite = (char === '\r' && !isCRLF);
+      if (line) {
+        const cls = detectLineClass(line);
+        logMaster(line, cls, overwrite);
       }
       
-      if (!line) continue;
+      const lowerLine = line.toLowerCase();
+      if (lowerLine.includes('server listening') || lowerLine.includes('listening at') || lowerLine.includes('listening on')) {
+        setMasterStatus('idle');
+      } else if (lowerLine.includes('total time =') || lowerLine.includes('200 ok') || lowerLine.includes('print_timings')) {
+        setMasterStatus('idle');
+      } else if (lowerLine.includes('processing') || lowerLine.includes('evaluating') || lowerLine.includes('generating') || lowerLine.includes('update_slots') || lowerLine.includes('post /') || lowerLine.includes('request:')) {
+        setMasterStatus('busy');
+        clearTimeout(masterBusyTimeout);
+        masterBusyTimeout = setTimeout(() => {
+          if (masterRunning) setMasterStatus('idle');
+        }, 45000); // 45s fallback timeout in case it gets stuck
+      }
       
-      const cls = stream === 'stderr' ? 'stderr' : detectLineClass(line);
-      logMaster(line, cls);
-      
-      // Parse token usage from llama.cpp output (supporting multiple timing format variations)
-      // We ONLY match 'total time' to prevent triple counting.
-      // llama-server outputs the same token count in `total time`, `slot release`, and JSON logs.
       const tokenMatch = line.match(/total time\s*=\s*[\d.]+\s*ms\s*\/\s*(\d+)\s*tokens?/i);
       if (tokenMatch) {
         const tokensUsed = parseInt(tokenMatch[1], 10);
@@ -526,12 +610,19 @@ function setupMasterIPC() {
   });
 }
 
-function logMaster(text, cls = 'stdout') {
+function logMaster(text, cls = 'stdout', overwrite = false) {
   const term = document.getElementById('masterTerminal');
+  if (overwrite && term.lastChild && term.lastChild.dataset.overwrite === 'true') {
+    term.lastChild.textContent = text;
+    term.lastChild.className = `term-line ${cls}`;
+    return;
+  }
   const line = document.createElement('p');
   line.className = `term-line ${cls}`;
   line.textContent = text;
+  if (overwrite) line.dataset.overwrite = 'true';
   term.appendChild(line);
+  while (term.children.length > 500) term.removeChild(term.firstChild);
   term.scrollTop = term.scrollHeight;
 }
 
@@ -788,7 +879,8 @@ function buildSlaveCard(state) {
   });
 
   // Clear terminal
-  card.querySelector(`#clearTerm_${id}`).addEventListener('click', () => {
+  card.querySelector(`#clearTerm_${id}`).addEventListener('click', (e) => {
+    e.stopPropagation();
     card.querySelector(`#term_${id}`).innerHTML = '';
   });
 
@@ -835,6 +927,30 @@ async function handleSlaveLaunch(state, card) {
   if (!config.ip || !config.username || !config.password) {
     logSlave(id, '❌ Please fill in IP, username, and password.', 'warn');
     return;
+  }
+
+  const port = config.port || 52396;
+  const portCheck = await window.api.checkPortRemote({ host: config.ip, port, username: config.username, password: config.password });
+  if (portCheck.inUse) {
+    if (portCheck.pid) {
+      const pName = portCheck.processName || 'unknown process';
+      const confirmKill = confirm(`Port ${port} is currently taken by '${pName}' (PID: ${portCheck.pid}) on the remote machine.\n\nWould you like to kill this process and proceed?`);
+      if (confirmKill) {
+        await window.api.killPortRemote({ host: config.ip, pid: portCheck.pid, username: config.username, password: config.password });
+        await new Promise(r => setTimeout(r, 500));
+        const recheck = await window.api.checkPortRemote({ host: config.ip, port, username: config.username, password: config.password });
+        if (recheck.inUse) {
+          logSlave(id, `❌ Failed to kill remote process on port ${port}.`, 'error');
+          return;
+        }
+      } else {
+        logSlave(id, `❌ Port ${port} is in use.`, 'warn');
+        return;
+      }
+    } else {
+      logSlave(id, `❌ Port ${port} is already in use.`, 'warn');
+      return;
+    }
   }
 
   const command = buildSlaveCommand(config);
@@ -905,7 +1021,7 @@ function setupSlaveIPC() {
   window.api.onSlaveOutput(({ slaveId, text, stream }) => {
     text.split('\n').forEach(line => {
       if (!line) return;
-      const cls = stream === 'stderr' ? 'stderr' : detectLineClass(line);
+      const cls = detectLineClass(line);
       logSlave(slaveId, line, cls);
     });
   });
@@ -1033,7 +1149,8 @@ function renderTokenChart() {
     tokenChart.destroy();
   }
   
-  const sliceStart = Math.max(0, fullTokenHistory.dates.length - chartVisibleHours);
+  const pointsPerHour = 4;
+  const sliceStart = Math.max(0, fullTokenHistory.dates.length - (chartVisibleHours * pointsPerHour));
   const dates = fullTokenHistory.dates.slice(sliceStart);
   const values = fullTokenHistory.values.slice(sliceStart);
 
@@ -1105,10 +1222,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (chartWrap) {
     chartWrap.addEventListener('wheel', (e) => {
       e.preventDefault();
-      // scale by 12 hours per scroll tick
+      // scale by 6 hours per scroll tick
       const dir = Math.sign(e.deltaY);
-      chartVisibleHours += dir * 12;
-      if (chartVisibleHours < 24) chartVisibleHours = 24;
+      chartVisibleHours += dir * 6;
+      if (chartVisibleHours < 6) chartVisibleHours = 6;
       if (chartVisibleHours > 168) chartVisibleHours = 168; // 7 days max
       renderTokenChart();
     }, { passive: false });

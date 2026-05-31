@@ -199,6 +199,16 @@ ipcMain.handle('tokens:log', (_, tokensToAdd) => {
   }
 });
 
+ipcMain.handle('app:getVersionInfo', () => {
+  try {
+    const pkg = require('./package.json');
+    const branch = require('child_process').execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
+    return { version: pkg.version, branch: branch };
+  } catch(e) {
+    return { version: 'unknown', branch: 'unknown' };
+  }
+});
+
 ipcMain.handle('tokens:getHistory', () => {
   const now = new Date();
   const todayPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -236,10 +246,11 @@ ipcMain.handle('tokens:getHistory', () => {
     const history = {};
     let todayTotal = 0;
     
-    // Get past 7 days (168 hours)
-    for (let i = 167; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 60 * 60 * 1000);
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`;
+    // Get past 7 days (168 hours) in 15-minute intervals
+    for (let i = 168 * 4 - 1; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 15 * 60 * 1000);
+      const bucketMin = Math.floor(d.getMinutes() / 15) * 15;
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(bucketMin).padStart(2, '0')}`;
       history[dateStr] = 0;
     }
     
@@ -250,10 +261,12 @@ ipcMain.handle('tokens:getHistory', () => {
           if (!line.trim()) return;
           const [dt, tokens] = line.split(',');
           if (dt && tokens) {
-            const dateHour = dt.substring(0, 13) + ':00';
+            const minPart = dt.length >= 16 ? parseInt(dt.substring(14, 16), 10) : 0;
+            const bucketMin = Math.floor(minPart / 15) * 15;
+            const dateBucket = dt.substring(0, 13) + ':' + String(bucketMin).padStart(2, '0');
             const parsedTokens = parseInt(tokens.trim(), 10) || 0;
-            if (history[dateHour] !== undefined) {
-              history[dateHour] += parsedTokens;
+            if (history[dateBucket] !== undefined) {
+              history[dateBucket] += parsedTokens;
             }
             if (dt.startsWith(todayPrefix)) {
               todayTotal += parsedTokens;
@@ -280,10 +293,41 @@ ipcMain.handle('dialog:openFile', async (_, options) => {
 // READ-ONLY — uses ss to check if a port is in use. Does NOT interact with any running services.
 ipcMain.handle('port:checkLocal', (_, port) => {
   return new Promise((resolve) => {
-    exec(`ss -tlnp | grep ':${port} '`, (err, stdout) => {
-      resolve({ inUse: !!(stdout && stdout.trim().length > 0) });
+    exec(`lsof -i :${port} | grep LISTEN`, (err, stdout) => {
+      if (stdout && stdout.trim().length > 0) {
+        const lines = stdout.trim().split('\n');
+        const parts = lines[0].trim().split(/\s+/);
+        const pName = parts[0];
+        const pid = parts[1];
+        resolve({ inUse: true, processName: pName, pid: pid });
+      } else {
+        resolve({ inUse: false });
+      }
     });
   });
+});
+
+ipcMain.handle('port:killLocal', (_, pid) => {
+  return new Promise((resolve) => {
+    exec(`kill -9 ${pid}`, (err) => {
+      resolve({ success: !err });
+    });
+  });
+});
+
+ipcMain.handle('server:checkHealth', async (_, { host, port }) => {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(`http://${host}:${port}/health`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      return await res.json();
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
 });
 
 // ─── Port check (REMOTE via SSH) ─────────────────────────────────────────────
@@ -299,11 +343,40 @@ ipcMain.handle('port:checkRemote', (_, { host, port, username, password }) => {
         stream.stderr.on('data', () => {});
         stream.on('close', () => {
           conn.end();
-          resolve({ inUse: !!(output && output.trim().length > 0) });
+          const outStr = output.trim();
+          if (outStr.length > 0) {
+            let pid = null;
+            let pName = 'unknown process';
+            const match = outStr.match(/users:\(\("([^"]+)",(?:pid=)?(\d+)/);
+            if (match) {
+              pName = match[1];
+              pid = match[2];
+            }
+            resolve({ inUse: true, processName: pName, pid });
+          } else {
+            resolve({ inUse: false });
+          }
         });
       });
     }).on('error', (err) => {
       resolve({ inUse: false, error: err.message });
+    }).connect({ host, port: 22, username, password, readyTimeout: 8000 });
+  });
+});
+
+ipcMain.handle('port:killRemote', (_, { host, pid, username, password }) => {
+  return new Promise((resolve) => {
+    const conn = new SSHClient();
+    conn.on('ready', () => {
+      conn.exec(`kill -9 ${pid}`, (err, stream) => {
+        if (err) { conn.end(); return resolve({ success: false, error: err.message }); }
+        stream.on('close', () => {
+          conn.end();
+          resolve({ success: true });
+        });
+      });
+    }).on('error', (err) => {
+      resolve({ success: false, error: err.message });
     }).connect({ host, port: 22, username, password, readyTimeout: 8000 });
   });
 });
@@ -326,7 +399,7 @@ ipcMain.handle('master:launch', (_, { command, cwd, remoteOpts }) => {
       const conn = new SSHClient();
 
       conn.on('ready', () => {
-        conn.exec(shellWrapped, (err, stream) => {
+        conn.exec(shellWrapped, { pty: true }, (err, stream) => {
           if (err) {
             conn.end();
             runningProcesses.master = null;
@@ -358,7 +431,10 @@ ipcMain.handle('master:launch', (_, { command, cwd, remoteOpts }) => {
     try {
       const args = command.split(/\s+/).filter(Boolean);
       const bin = args.shift();
-      const proc = spawn(bin, args, { cwd: cwd || path.dirname(bin), shell: false });
+
+      let finalBin = bin;
+      let finalArgs = args;
+      const proc = spawn(finalBin, finalArgs, { cwd: cwd || path.dirname(bin), shell: false });
 
       runningProcesses.master = proc;
 

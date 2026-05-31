@@ -145,6 +145,9 @@ body {
 }
 .status-orb.error { background: var(--accent-rose); box-shadow: 0 0 8px var(--accent-rose); }
 .status-orb.starting { background: var(--accent-amber); box-shadow: 0 0 8px var(--accent-amber); animation: pulse-orb 0.8s ease-in-out infinite; }
+.status-orb.warming { background: var(--accent-amber); box-shadow: 0 0 8px var(--accent-amber); animation: pulse-orb 0.8s ease-in-out infinite; }
+.status-orb.idle { background: var(--accent-light); box-shadow: 0 0 8px var(--accent-light); }
+.status-orb.busy { background: var(--accent-indigo); box-shadow: 0 0 8px var(--accent-indigo), 0 0 16px rgba(124,58,237,0.3); animation: pulse-orb 0.8s ease-in-out infinite; }
 
 @keyframes pulse-orb {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -167,6 +170,9 @@ body {
 .status-badge.running { background: rgba(61,158,110,0.12); color: var(--accent-green); border-color: rgba(61,158,110,0.3); }
 .status-badge.error { background: rgba(217,85,85,0.12); color: var(--accent-rose); border-color: rgba(217,85,85,0.3); }
 .status-badge.starting { background: rgba(200,154,58,0.12); color: var(--accent-amber); border-color: rgba(200,154,58,0.3); }
+.status-badge.warming { background: rgba(200,154,58,0.12); color: var(--accent-amber); border-color: rgba(200,154,58,0.3); }
+.status-badge.idle { background: rgba(180,180,180,0.12); color: var(--accent-light); border-color: rgba(180,180,180,0.3); }
+.status-badge.busy { background: rgba(124,58,237,0.12); color: var(--accent-indigo); border-color: rgba(124,58,237,0.3); }
 
 /* ─── Panel body (scrollable) ─────────────────────────────── */
 .panel-body {
@@ -506,7 +512,7 @@ input[readonly] { cursor: default; opacity: 0.75; }
 }
 .term-line { margin: 0; padding: 0; white-space: pre-wrap; word-break: break-all; }
 .term-line.stderr { color: #cc7070; }
-.term-line.stdout { color: #909090; }
+.term-line.stdout { color: var(--accent-amber); }
 .term-line.info  { color: var(--accent-teal); font-weight: 500; }
 .term-line.warn  { color: var(--accent-amber); }
 .term-line.success { color: var(--accent-green); }
@@ -1166,10 +1172,14 @@ input[readonly] { cursor: default; opacity: 0.75; }
 }
 
 /* ─── Collapsible Form Sections ───────────────────────────── */
-.form-section .section-content, .terminal-container .section-content {
+.form-section .section-content {
   transition: max-height 0.2s ease-out, opacity 0.2s ease-out;
   opacity: 1;
   overflow: visible;
+}
+.terminal-container .section-content {
+  transition: max-height 0.2s ease-out, opacity 0.2s ease-out;
+  opacity: 1;
 }
 .form-section.collapsed .section-content, .terminal-container.collapsed .section-content {
   display: none;
