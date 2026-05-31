@@ -1172,10 +1172,14 @@ input[readonly] { cursor: default; opacity: 0.75; }
 }
 
 /* ─── Collapsible Form Sections ───────────────────────────── */
-.form-section .section-content, .terminal-container .section-content {
+.form-section .section-content {
   transition: max-height 0.2s ease-out, opacity 0.2s ease-out;
   opacity: 1;
   overflow: visible;
+}
+.terminal-container .section-content {
+  transition: max-height 0.2s ease-out, opacity 0.2s ease-out;
+  opacity: 1;
 }
 .form-section.collapsed .section-content, .terminal-container.collapsed .section-content {
   display: none;

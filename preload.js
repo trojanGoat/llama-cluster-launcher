@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('api', {
   checkPortLocal: (port) => ipcRenderer.invoke('port:checkLocal', port),
   checkPortRemote: (opts) => ipcRenderer.invoke('port:checkRemote', opts),
   killPortLocal: (pid) => ipcRenderer.invoke('port:killLocal', pid),
+  killPortRemote: (opts) => ipcRenderer.invoke('port:killRemote', opts),
+  checkHealth: (opts) => ipcRenderer.invoke('server:checkHealth', opts),
 
   // Master process
   launchMaster: (opts) => ipcRenderer.invoke('master:launch', opts),
