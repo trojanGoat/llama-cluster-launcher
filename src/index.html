@@ -34,9 +34,15 @@
         </div>
         <div class="token-monitor-header" id="masterTokenMonitor">
           <div class="token-live-wrap" style="display: flex; flex-direction: column; align-items: flex-start; gap: 8px;">
-            <div style="display: flex; flex-direction: column;">
-              <div class="token-count" id="liveTokenCount">0</div>
-              <div class="token-label">Tokens Today</div>
+            <div style="display: flex; flex-direction: row; gap: 16px;">
+              <div style="display: flex; flex-direction: column;">
+                <div class="token-count" id="liveEvalTokenCount" style="color: #14b8a6;">0</div>
+                <div class="token-label">Tokens Generated</div>
+              </div>
+              <div style="display: flex; flex-direction: column;">
+                <div class="token-count" id="livePromptTokenCount" style="color: #eab308;">0</div>
+                <div class="token-label">Tokens Processed</div>
+              </div>
             </div>
             <button class="btn-launch" id="masterLaunchBtn" style="margin: 0; padding: 6px 16px; font-size: 0.85em; min-width: 140px; justify-content: center;">
               <span class="btn-launch-icon">▶</span> Launch Master

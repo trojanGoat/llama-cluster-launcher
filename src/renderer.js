@@ -5,7 +5,8 @@ let slaves = [];           // Array of slave config objects
 let masterRunning = false;
 let masterStatus = 'stopped';
 let slaveCounter = 0;
-let todayTotalTokens = 0;
+let todayPromptTokens = 0;
+let todayEvalTokens = 0;
 let tokenChart = null;
 let masterGpuStats = null;
 
@@ -190,7 +191,7 @@ function syncClusterState() {
   const state = {
     master: {
       running: masterRunning,
-      tokensToday: todayTotalTokens,
+      tokensToday: todayEvalTokens,
       port: document.getElementById('masterPort').value,
       host: document.getElementById('masterHost').value,
       gpuStats: masterGpuStats
@@ -571,9 +572,19 @@ function setupMasterIPC() {
       const lowerLine = line.toLowerCase();
       if (lowerLine.includes('server listening') || lowerLine.includes('listening at') || lowerLine.includes('listening on')) {
         setMasterStatus('idle');
-      } else if (lowerLine.includes('total time =') || lowerLine.includes('200 ok') || lowerLine.includes('print_timings')) {
+      } else if (lowerLine.includes('total time =') || lowerLine.includes('print_timings')) {
         setMasterStatus('idle');
-      } else if (lowerLine.includes('processing') || lowerLine.includes('evaluating') || lowerLine.includes('generating') || lowerLine.includes('update_slots') || lowerLine.includes('post /') || lowerLine.includes('request:')) {
+      } else if (
+        lowerLine.includes('processing') || 
+        lowerLine.includes('evaluating') || 
+        lowerLine.includes('generating') || 
+        lowerLine.includes('update_slots') || 
+        lowerLine.includes('post /') || 
+        lowerLine.includes('request:') ||
+        lowerLine.includes('print_timing') || 
+        lowerLine.includes('n_decoded') ||
+        lowerLine.includes('tg =')
+      ) {
         setMasterStatus('busy');
         clearTimeout(masterBusyTimeout);
         masterBusyTimeout = setTimeout(() => {
@@ -581,19 +592,40 @@ function setupMasterIPC() {
         }, 45000); // 45s fallback timeout in case it gets stuck
       }
       
-      const tokenMatch = line.match(/total time\s*=\s*[\d.]+\s*ms\s*\/\s*(\d+)\s*tokens?/i);
-      if (tokenMatch) {
-        const tokensUsed = parseInt(tokenMatch[1], 10);
-        if (tokensUsed > 0) {
-          todayTotalTokens += tokensUsed;
-          document.getElementById('liveTokenCount').textContent = todayTotalTokens.toLocaleString();
-          window.api.logTokens(tokensUsed);
+      let tokenType = null;
+      let tokensUsed = 0;
+      if (line.includes('prompt eval time')) {
+        const match = line.match(/prompt eval time\s*=\s*[\d.]+\s*ms\s*\/\s*(\d+)\s*tokens?/i);
+        if (match) {
+          tokensUsed = parseInt(match[1], 10);
+          tokenType = 'prompt';
+        }
+      } else if (line.includes('eval time')) {
+        const match = line.match(/eval time\s*=\s*[\d.]+\s*ms\s*\/\s*(\d+)\s*tokens?/i);
+        if (match) {
+          tokensUsed = parseInt(match[1], 10);
+          tokenType = 'eval';
+        }
+      }
+
+      if (tokensUsed > 0 && tokenType) {
+        if (tokenType === 'prompt') todayPromptTokens += tokensUsed;
+        if (tokenType === 'eval') todayEvalTokens += tokensUsed;
+        
+        const elEval = document.getElementById('liveEvalTokenCount');
+        if (elEval) elEval.textContent = todayEvalTokens.toLocaleString();
+        const elPrompt = document.getElementById('livePromptTokenCount');
+        if (elPrompt) elPrompt.textContent = todayPromptTokens.toLocaleString();
+        window.api.logTokens({ type: tokenType, count: tokensUsed });
+        
+        if (tokenChart && tokenChart.data.datasets.length > 0) {
+          const dsPrompt = tokenChart.data.datasets.find(ds => ds.label === 'Tokens Processed');
+          const dsEval = tokenChart.data.datasets.find(ds => ds.label === 'Tokens Generated');
           
-          if (tokenChart && tokenChart.data.datasets[0].data.length > 0) {
-            const len = tokenChart.data.datasets[0].data.length;
-            tokenChart.data.datasets[0].data[len - 1] = todayTotalTokens;
-            tokenChart.update();
-          }
+          if (dsPrompt && dsPrompt.data.length > 0) dsPrompt.data[dsPrompt.data.length - 1] = todayPromptTokens;
+          if (dsEval && dsEval.data.length > 0) dsEval.data[dsEval.data.length - 1] = todayEvalTokens;
+          
+          tokenChart.update();
         }
       }
     }
@@ -1077,6 +1109,12 @@ function startStatsPolling() {
 }
 
 function updateGpuUI(id, stats) {
+  const getGradientColor = (pct) => {
+    const p = Math.max(0, Math.min(100, pct));
+    const h = 140 - (p * 1.4);
+    return `hsl(${h}, 65%, 50%)`;
+  };
+
   const isMaster = id === 'master';
   if (isMaster) {
     masterGpuStats = stats;
@@ -1099,8 +1137,8 @@ function updateGpuUI(id, stats) {
     const u = Math.min(100, Math.max(0, stats.util));
     utilFill.setAttribute('stroke-dasharray', `${u}, 100`);
     utilVal.textContent = `${u}%`;
-    utilFill.classList.toggle('warning', u > 70);
-    utilFill.classList.toggle('critical', u > 90);
+    utilFill.style.stroke = getGradientColor(u);
+    utilFill.style.transition = 'stroke-dasharray 0.5s ease, stroke 0.5s ease';
   }
 
   if (memFill && memVal) {
@@ -1109,9 +1147,8 @@ function updateGpuUI(id, stats) {
     // Show MB, but switch to GB if > 1024
     const formatMem = (m) => m > 1024 ? `${(m/1024).toFixed(1)}G` : `${m}M`;
     memVal.textContent = isMaster ? `${formatMem(stats.memUsed)}/${formatMem(stats.memTotal)}` : formatMem(stats.memUsed);
-
-    memFill.classList.toggle('warning', mPerc > 75);
-    memFill.classList.toggle('critical', mPerc > 92);
+    memFill.style.stroke = getGradientColor(mPerc);
+    memFill.style.transition = 'stroke-dasharray 0.5s ease, stroke 0.5s ease';
   }
 
   if (powerFill && powerVal) {
@@ -1119,25 +1156,30 @@ function updateGpuUI(id, stats) {
     const pPerc = Math.min(100, Math.round((stats.power / 350) * 100));
     powerFill.setAttribute('stroke-dasharray', `${pPerc}, 100`);
     powerVal.textContent = `${Math.round(stats.power)}W`;
-    powerFill.classList.toggle('warning', pPerc > 80);
-    powerFill.classList.toggle('critical', pPerc > 95);
+    powerFill.style.stroke = getGradientColor(pPerc);
+    powerFill.style.transition = 'stroke-dasharray 0.5s ease, stroke 0.5s ease';
   }
 }
 
 // ─── Token Chart ──────────────────────────────────────────────────────────────
 let chartVisibleHours = 24;
-let fullTokenHistory = { dates: [], values: [] };
+let fullTokenHistory = { dates: [], promptValues: [], evalValues: [] };
 
 async function initTokenChart() {
   const result = await window.api.getTokenHistory();
   if (!result.success) return;
   
-  const history = result.history; // e.g. { '2026-05-25 12:00': 12000, ... }
+  const history = result.history;
   fullTokenHistory.dates = Object.keys(history).sort();
-  fullTokenHistory.values = fullTokenHistory.dates.map(d => history[d]);
+  fullTokenHistory.promptValues = fullTokenHistory.dates.map(d => history[d].prompt);
+  fullTokenHistory.evalValues = fullTokenHistory.dates.map(d => history[d].eval);
   
-  todayTotalTokens = result.todayTotal || 0;
-  document.getElementById('liveTokenCount').textContent = todayTotalTokens.toLocaleString();
+  todayPromptTokens = result.todayPrompt || 0;
+  todayEvalTokens = result.todayEval || 0;
+  const elEval = document.getElementById('liveEvalTokenCount');
+  if (elEval) elEval.textContent = todayEvalTokens.toLocaleString();
+  const elPrompt = document.getElementById('livePromptTokenCount');
+  if (elPrompt) elPrompt.textContent = todayPromptTokens.toLocaleString();
   
   renderTokenChart();
 }
@@ -1152,7 +1194,8 @@ function renderTokenChart() {
   const pointsPerHour = 4;
   const sliceStart = Math.max(0, fullTokenHistory.dates.length - (chartVisibleHours * pointsPerHour));
   const dates = fullTokenHistory.dates.slice(sliceStart);
-  const values = fullTokenHistory.values.slice(sliceStart);
+  const promptValues = fullTokenHistory.promptValues.slice(sliceStart);
+  const evalValues = fullTokenHistory.evalValues.slice(sliceStart);
 
   // Format labels for display
   const labels = dates.map(d => {
@@ -1173,29 +1216,42 @@ function renderTokenChart() {
     type: 'line',
     data: {
       labels: labels,
-      datasets: [{
-        label: 'Tokens',
-        data: values,
-        borderColor: '#7c3aed', // --accent-indigo
-        backgroundColor: 'rgba(124, 58, 237, 0.1)',
-        borderWidth: 2,
-        pointBackgroundColor: '#7c3aed',
-        pointRadius: 3,
-        fill: true,
-        tension: 0.3
-      }]
+      datasets: [
+        {
+          label: 'Tokens Processed',
+          data: promptValues,
+          borderColor: '#eab308', // yellow
+          backgroundColor: 'rgba(234, 179, 8, 0.1)',
+          borderWidth: 2,
+          pointBackgroundColor: '#eab308',
+          pointRadius: 1,
+          fill: true,
+          tension: 0.3
+        },
+        {
+          label: 'Tokens Generated',
+          data: evalValues,
+          borderColor: '#14b8a6', // teal
+          backgroundColor: 'rgba(20, 184, 166, 0.1)',
+          borderWidth: 2,
+          pointBackgroundColor: '#14b8a6',
+          pointRadius: 1,
+          fill: true,
+          tension: 0.3
+        }
+      ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { display: false },
+        legend: { display: true, labels: { color: '#ccc', font: { size: 10 }, usePointStyle: true, boxWidth: 4, boxHeight: 4 } },
         tooltip: {
           backgroundColor: '#222',
           titleColor: '#ccc',
           bodyColor: '#fff',
           callbacks: {
-            label: (ctx) => `${ctx.parsed.y.toLocaleString()} tokens`
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}`
           }
         }
       },
