@@ -622,8 +622,18 @@ function setupMasterIPC() {
           const dsPrompt = tokenChart.data.datasets.find(ds => ds.label === 'Tokens Processed');
           const dsEval = tokenChart.data.datasets.find(ds => ds.label === 'Tokens Generated');
           
-          if (dsPrompt && dsPrompt.data.length > 0) dsPrompt.data[dsPrompt.data.length - 1] = todayPromptTokens;
-          if (dsEval && dsEval.data.length > 0) dsEval.data[dsEval.data.length - 1] = todayEvalTokens;
+          if (dsPrompt && dsPrompt.data.length > 0 && tokenType === 'prompt') {
+            dsPrompt.data[dsPrompt.data.length - 1] += tokensUsed;
+            if (fullTokenHistory.promptValues.length > 0) {
+              fullTokenHistory.promptValues[fullTokenHistory.promptValues.length - 1] += tokensUsed;
+            }
+          }
+          if (dsEval && dsEval.data.length > 0 && tokenType === 'eval') {
+            dsEval.data[dsEval.data.length - 1] += tokensUsed;
+            if (fullTokenHistory.evalValues.length > 0) {
+              fullTokenHistory.evalValues[fullTokenHistory.evalValues.length - 1] += tokensUsed;
+            }
+          }
           
           tokenChart.update();
         }
@@ -1218,23 +1228,23 @@ function renderTokenChart() {
       labels: labels,
       datasets: [
         {
-          label: 'Tokens Processed',
-          data: promptValues,
-          borderColor: '#eab308', // yellow
-          backgroundColor: 'rgba(234, 179, 8, 0.1)',
-          borderWidth: 2,
-          pointBackgroundColor: '#eab308',
-          pointRadius: 1,
-          fill: true,
-          tension: 0.3
-        },
-        {
           label: 'Tokens Generated',
           data: evalValues,
           borderColor: '#14b8a6', // teal
           backgroundColor: 'rgba(20, 184, 166, 0.1)',
           borderWidth: 2,
           pointBackgroundColor: '#14b8a6',
+          pointRadius: 1,
+          fill: true,
+          tension: 0.3
+        },
+        {
+          label: 'Tokens Processed',
+          data: promptValues,
+          borderColor: '#eab308', // yellow
+          backgroundColor: 'rgba(234, 179, 8, 0.1)',
+          borderWidth: 2,
+          pointBackgroundColor: '#eab308',
           pointRadius: 1,
           fill: true,
           tension: 0.3

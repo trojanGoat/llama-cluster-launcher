@@ -279,7 +279,7 @@ ipcMain.handle('tokens:getHistory', () => {
               count = parseInt(parts[1].trim(), 10) || 0;
             }
             
-            const minPart = dt.length >= 16 ? parseInt(dt.substring(14, 16), 10) : 0;
+            const minPart = dt.length >= 16 ? (parseInt(dt.substring(14, 16), 10) || 0) : 0;
             const bucketMin = Math.floor(minPart / 15) * 15;
             const dateBucket = dt.substring(0, 13) + ':' + String(bucketMin).padStart(2, '0');
             
