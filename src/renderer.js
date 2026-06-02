@@ -1109,6 +1109,12 @@ function startStatsPolling() {
 }
 
 function updateGpuUI(id, stats) {
+  const getGradientColor = (pct) => {
+    const p = Math.max(0, Math.min(100, pct));
+    const h = 140 - (p * 1.4);
+    return `hsl(${h}, 65%, 50%)`;
+  };
+
   const isMaster = id === 'master';
   if (isMaster) {
     masterGpuStats = stats;
@@ -1131,8 +1137,8 @@ function updateGpuUI(id, stats) {
     const u = Math.min(100, Math.max(0, stats.util));
     utilFill.setAttribute('stroke-dasharray', `${u}, 100`);
     utilVal.textContent = `${u}%`;
-    utilFill.classList.toggle('warning', u > 70);
-    utilFill.classList.toggle('critical', u > 90);
+    utilFill.style.stroke = getGradientColor(u);
+    utilFill.style.transition = 'stroke-dasharray 0.5s ease, stroke 0.5s ease';
   }
 
   if (memFill && memVal) {
@@ -1141,9 +1147,8 @@ function updateGpuUI(id, stats) {
     // Show MB, but switch to GB if > 1024
     const formatMem = (m) => m > 1024 ? `${(m/1024).toFixed(1)}G` : `${m}M`;
     memVal.textContent = isMaster ? `${formatMem(stats.memUsed)}/${formatMem(stats.memTotal)}` : formatMem(stats.memUsed);
-
-    memFill.classList.toggle('warning', mPerc > 75);
-    memFill.classList.toggle('critical', mPerc > 92);
+    memFill.style.stroke = getGradientColor(mPerc);
+    memFill.style.transition = 'stroke-dasharray 0.5s ease, stroke 0.5s ease';
   }
 
   if (powerFill && powerVal) {
@@ -1151,8 +1156,8 @@ function updateGpuUI(id, stats) {
     const pPerc = Math.min(100, Math.round((stats.power / 350) * 100));
     powerFill.setAttribute('stroke-dasharray', `${pPerc}, 100`);
     powerVal.textContent = `${Math.round(stats.power)}W`;
-    powerFill.classList.toggle('warning', pPerc > 80);
-    powerFill.classList.toggle('critical', pPerc > 95);
+    powerFill.style.stroke = getGradientColor(pPerc);
+    powerFill.style.transition = 'stroke-dasharray 0.5s ease, stroke 0.5s ease';
   }
 }
 
@@ -1240,7 +1245,7 @@ function renderTokenChart() {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { display: true, labels: { color: '#ccc', font: { size: 10 } } },
+        legend: { display: true, labels: { color: '#ccc', font: { size: 10 }, usePointStyle: true, boxWidth: 4, boxHeight: 4 } },
         tooltip: {
           backgroundColor: '#222',
           titleColor: '#ccc',
