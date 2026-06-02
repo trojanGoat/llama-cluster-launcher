@@ -175,8 +175,20 @@ ipcMain.handle('screenshot:capture', async () => {
 });
 
 // ─── Token Logging ───────────────────────────────────────────────────────────
-ipcMain.handle('tokens:log', (_, tokensToAdd) => {
-  if (SCREENSHOT_MODE || !tokensToAdd) return { success: true };
+ipcMain.handle('tokens:log', (_, tokenData) => {
+  if (SCREENSHOT_MODE || !tokenData) return { success: true };
+  
+  let type = 'unknown';
+  let count = 0;
+  if (typeof tokenData === 'number') {
+    count = tokenData;
+  } else {
+    type = tokenData.type || 'unknown';
+    count = tokenData.count || 0;
+  }
+  
+  if (!count) return { success: true };
+
   try {
     const logsDir = path.join(__dirname, 'logs');
     if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
@@ -186,10 +198,10 @@ ipcMain.handle('tokens:log', (_, tokensToAdd) => {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const logFile = path.join(logsDir, `token_usage_${year}_${month}.txt`);
     
-    // Format: YYYY-MM-DD HH:MM:SS, <tokens>
+    // Format: YYYY-MM-DD HH:MM:SS, <type>, <tokens>
     const dateStr = `${year}-${month}-${String(now.getDate()).padStart(2, '0')}`;
     const timeStr = now.toTimeString().slice(0, 8);
-    const line = `${dateStr} ${timeStr}, ${tokensToAdd}\n`;
+    const line = `${dateStr} ${timeStr}, ${type}, ${count}\n`;
     
     fs.appendFileSync(logFile, line, 'utf8');
     return { success: true };
@@ -214,27 +226,21 @@ ipcMain.handle('tokens:getHistory', () => {
   const todayPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
   if (SCREENSHOT_MODE) {
-    // Return mock data for 168 hours
+    // Return mock data
     const mockHistory = {};
     for (let i = 167; i >= 0; i--) {
       const d = new Date(now.getTime() - i * 60 * 60 * 1000);
       const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`;
-      mockHistory[dateStr] = Math.floor(Math.random() * 5000);
+      mockHistory[dateStr] = { prompt: Math.floor(Math.random() * 20000), eval: Math.floor(Math.random() * 5000), unknown: 0 };
     }
-    return {
-      success: true,
-      history: mockHistory,
-      todayTotal: 25000
-    };
+    return { success: true, history: mockHistory, todayPrompt: 150000, todayEval: 25000 };
   }
   
   try {
     const logsDir = path.join(__dirname, 'logs');
-    if (!fs.existsSync(logsDir)) return { success: true, history: {}, todayTotal: 0 };
+    if (!fs.existsSync(logsDir)) return { success: true, history: {}, todayPrompt: 0, todayEval: 0 };
     
-    // We need to read files for the current and previous month to get the last 24 hours
     const currentMonth = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`;
-    
     const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const prevMonth = `${prevDate.getFullYear()}_${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
     
@@ -244,14 +250,15 @@ ipcMain.handle('tokens:getHistory', () => {
     ];
     
     const history = {};
-    let todayTotal = 0;
+    let todayPrompt = 0;
+    let todayEval = 0;
     
     // Get past 7 days (168 hours) in 15-minute intervals
     for (let i = 168 * 4 - 1; i >= 0; i--) {
       const d = new Date(now.getTime() - i * 15 * 60 * 1000);
       const bucketMin = Math.floor(d.getMinutes() / 15) * 15;
       const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(bucketMin).padStart(2, '0')}`;
-      history[dateStr] = 0;
+      history[dateStr] = { prompt: 0, eval: 0, unknown: 0 };
     }
     
     filesToRead.forEach(file => {
@@ -259,24 +266,39 @@ ipcMain.handle('tokens:getHistory', () => {
         const content = fs.readFileSync(file, 'utf8');
         content.split('\n').forEach(line => {
           if (!line.trim()) return;
-          const [dt, tokens] = line.split(',');
-          if (dt && tokens) {
+          const parts = line.split(',');
+          if (parts.length >= 2) {
+            const dt = parts[0].trim();
+            let type = 'unknown';
+            let count = 0;
+            
+            if (parts.length >= 3) {
+              type = parts[1].trim();
+              count = parseInt(parts[2].trim(), 10) || 0;
+            } else {
+              count = parseInt(parts[1].trim(), 10) || 0;
+            }
+            
             const minPart = dt.length >= 16 ? parseInt(dt.substring(14, 16), 10) : 0;
             const bucketMin = Math.floor(minPart / 15) * 15;
             const dateBucket = dt.substring(0, 13) + ':' + String(bucketMin).padStart(2, '0');
-            const parsedTokens = parseInt(tokens.trim(), 10) || 0;
+            
             if (history[dateBucket] !== undefined) {
-              history[dateBucket] += parsedTokens;
+              if (type === 'prompt') history[dateBucket].prompt += count;
+              else if (type === 'eval') history[dateBucket].eval += count;
+              else history[dateBucket].unknown += count;
             }
+            
             if (dt.startsWith(todayPrefix)) {
-              todayTotal += parsedTokens;
+              if (type === 'prompt' || type === 'unknown') todayPrompt += count;
+              if (type === 'eval') todayEval += count;
             }
           }
         });
       }
     });
     
-    return { success: true, history, todayTotal };
+    return { success: true, history, todayPrompt, todayEval };
   } catch (err) {
     console.error('Error fetching token history:', err);
     return { success: false, error: err.message };
