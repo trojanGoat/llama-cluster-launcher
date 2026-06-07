@@ -63,6 +63,12 @@ npm start
 
 This app is [Pinokio](https://pinokio.computer/) friendly! You can install and launch it with one click by pasting this repository's URL into your Pinokio browser. 
 
+**Make sure to use the `main` branch when installing via Pinokio:**
+```text
+https://github.com/trojanGoat/llama-cluster-launcher.git
+```
+*(Note: Pinokio can load other branches like `beta` if you use their specific URLs, but our workflow is to always push stable updates to the `main` branch.)*
+
 > **⚠️ Important Note for Pinokio Users**: This is a **native desktop GUI application** (built with Electron), not a web app. It is intended to be used directly on the machine where it is installed. If you attempt to launch the app via the Pinokio web UI from a *remote* computer on your network, the application window will physically open on the host machine's monitor, not in your web browser.
 
 ### Usage in 4 Steps
