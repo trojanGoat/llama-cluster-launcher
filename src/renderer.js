@@ -396,7 +396,7 @@ async function handleMasterLaunch() {
     const res = await window.api.stopMaster();
     if (res.success) {
       setMasterStatus('stopped');
-      logMaster('⏹ Node0 stopped.', 'system');
+      logMaster('⏹ Master Node stopped.', 'system');
     } else {
       logMaster(`Error stopping: ${res.error}`, 'warn');
     }
@@ -476,7 +476,7 @@ async function handleMasterLaunch() {
   if (result.success) {
     masterRunning = true;
     setMasterStatus('warming');
-    logMaster(`✓ Node0 started (PID ${result.pid || 'remote'})`, 'success');
+    logMaster(`✓ Master Node started (PID ${result.pid || 'remote'})`, 'success');
     startHealthPolling();
   } else {
     setMasterStatus('error');
@@ -530,7 +530,7 @@ function setMasterStatus(status) {
     btn.classList.add('running');
     icon.textContent = '■';
     btn.querySelector('span:last-child') || (btn.lastChild.textContent = '');
-    btn.innerHTML = `<span class="btn-launch-icon">■</span> Stop Node0`;
+    btn.innerHTML = `<span class="btn-launch-icon">■</span> Stop Master Node`;
     masterRunning = true;
     document.getElementById('masterGpuMonitor').style.display = 'flex';
     
@@ -540,10 +540,10 @@ function setMasterStatus(status) {
     document.getElementById('masterTitleText').textContent = `${displayHost}:${port}`;
   } else {
     btn.classList.remove('running');
-    btn.innerHTML = `<span class="btn-launch-icon">▶</span> Launch Node0`;
+    btn.innerHTML = `<span class="btn-launch-icon">▶</span> Launch Master Node`;
     masterRunning = false;
     document.getElementById('masterGpuMonitor').style.display = 'none';
-    document.getElementById('masterTitleText').textContent = 'Node0 Node';
+    document.getElementById('masterTitleText').textContent = 'Master Node';
   }
 }
 
@@ -775,7 +775,7 @@ function buildSlaveCard(state) {
         <div class="node-field-group">
           <div class="node-field-label">
             RPC Port (-p)
-            <span class="help-tip" data-tip="Port rpc-server listens on. Must match the port in node0's --rpc flag (e.g. 52396). Checked on the remote machine via SSH before launch.">?</span>
+            <span class="help-tip" data-tip="Port rpc-server listens on. Must match the port in the master node's --rpc flag (e.g. 52396). Checked on the remote machine via SSH before launch.">?</span>
           </div>
           <div class="port-row">
             <input type="number" id="port_${id}" class="field-input" value="${esc(config.port)}" min="1024" max="65535" />
@@ -1374,7 +1374,7 @@ if (window.api.isScreenshotMode) {
       { text: 'llama_new_context_with_model: n_ctx = 32768, n_batch = 2048, n_ubatch = 512', cls: 'stdout' },
       { text: 'llama_new_context_with_model: flash_attn = 1', cls: 'stdout' },
       { text: 'llama_kv_cache_init:      CUDA0 KV buffer size =  2048.00 MiB', cls: 'stdout' },
-      { text: '✓ Node0 started (PID 18432)', cls: 'success' },
+      { text: '✓ Master Node started (PID 18432)', cls: 'success' },
       { text: 'llama_server_listen: HTTP server listening on 0.0.0.0:8080', cls: 'success' },
       { text: 'slot available for connections, processing requests...', cls: 'success' },
     ];

@@ -28,7 +28,7 @@
       <div class="panel-header" id="masterPanelHeader">
         <div class="panel-title-row">
           <div class="status-orb" id="masterOrb"></div>
-          <h2 class="panel-title"><span id="masterTitleText">Node0 Node</span> <span id="masterVersion" style="font-size: 11px; color: var(--text-muted); margin-left: 10px; font-weight: normal; vertical-align: middle;"></span></h2>
+          <h2 class="panel-title"><span id="masterTitleText">Master Node</span> <span id="masterVersion" style="font-size: 11px; color: var(--text-muted); margin-left: 10px; font-weight: normal; vertical-align: middle;"></span></h2>
           <span class="status-badge" id="masterStatusBadge">Stopped</span>
           <button class="btn-panel-collapse" id="masterCollapseBtn" title="Minimize/Expand panel">▾</button>
         </div>
@@ -45,7 +45,7 @@
               </div>
             </div>
             <button class="btn-launch" id="masterLaunchBtn" style="margin: 0; padding: 6px 16px; font-size: 0.85em; min-width: 140px; justify-content: center;">
-              <span class="btn-launch-icon">▶</span> Launch Node0
+              <span class="btn-launch-icon">▶</span> Launch Master Node
             </button>
           </div>
           <div class="token-chart-wrap">
@@ -159,7 +159,7 @@
                 <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
                   <input type="checkbox" id="remoteMasterEnable" class="field-checkbox" />
                   <label class="field-label" for="remoteMasterEnable" style="margin-bottom: 0; cursor: pointer;">
-                    Run Node0 Node Remotely
+                    Run Master Node Remotely
                   </label>
                 </div>
               </div>
@@ -375,7 +375,7 @@
                 <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
                   <input type="checkbox" id="remoteMasterEnable" class="field-checkbox" />
                   <label class="field-label" for="remoteMasterEnable" style="margin-bottom: 0; cursor: pointer;">
-                    Run Node0 Node Remotely
+                    Run Master Node Remotely
                   </label>
                 </div>
               </div>
@@ -554,13 +554,13 @@
       <p class="version">v1.0.2</p>
     </div>
     <div class="modal-body">
-      <p>A GUI launcher for <strong>llama.cpp</strong> clustered inference, enabling distributed model serving across a node0 node and SSH-connected node nodes.</p>
+      <p>A GUI launcher for <strong>llama.cpp</strong> clustered inference, enabling distributed model serving across a master node and SSH-connected worker nodes.</p>
       
       <h3>Getting Started</h3>
       <ol>
         <li>Ensure <code>llama.cpp</code> is compiled on all nodes.</li>
-        <li>Configure SSH access from the node0 to your node nodes.</li>
-        <li>Launch the app and enter your cluster details (node0 IP, node IPs, SSH credentials).</li>
+        <li>Configure SSH access from the master node to your worker nodes.</li>
+        <li>Launch the app and enter your cluster details (master IP, worker IPs, SSH credentials).</li>
         <li>Select a model and click <strong>Start Cluster</strong> to deploy inference services.</li>
         <li>Use the provided endpoint to send inference requests.</li>
       </ol>
