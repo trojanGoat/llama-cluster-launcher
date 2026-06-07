@@ -10,8 +10,8 @@ A complete guide to setting up, configuring, and running a distributed `llama.cp
 2. [Prerequisites](#2-prerequisites)
 3. [Installation](#3-installation)
 4. [Quick Start](#4-quick-start)
-5. [Configuring the Master Node](#5-configuring-the-master-node)
-6. [Configuring Slave Nodes](#6-configuring-slave-nodes)
+5. [Configuring the Node0 Node](#5-configuring-the-node0-node)
+6. [Configuring Node Nodes](#6-configuring-node-nodes)
 7. [Launching Your Cluster](#7-launching-your-cluster)
 8. [Monitoring GPU Metrics](#8-monitoring-gpu-metrics)
 9. [⚠️ SSH Security — Read This First](#9-️-ssh-security--read-this-first)
@@ -36,7 +36,7 @@ Llama Cluster Launcher is an Electron-based GUI that orchestrates a **distribute
 │  └───────────────┬───────────────────┘  │      │  │  (listens :52396)  │  │
 │                  │ spawns               │      │  └────────────────────┘  │
 │  ┌───────────────▼───────────────────┐  │ RPC  │                          │
-│  │         llama-server (Master)     │◀─┼─────▶│  GPU offload layers      │
+│  │         llama-server (Node0)     │◀─┼─────▶│  GPU offload layers      │
 │  │  (loads model, handles HTTP API)  │  │      └──────────────────────────┘
 │  └───────────────────────────────────┘  │
 │  http://localhost:8080 (OpenAI compat.) │      ┌──────────────────────────┐
@@ -48,8 +48,8 @@ Llama Cluster Launcher is an Electron-based GUI that orchestrates a **distribute
                                                  └──────────────────────────┘
 ```
 
-- **Master Node**: Runs `llama-server` **locally** on your machine. Loads the model, handles all inference requests over an OpenAI-compatible HTTP API, and delegates GPU computation to slave nodes via RPC.
-- **Slave Nodes**: Remote machines running `rpc-server`. The GUI connects over SSH and launches the RPC server process for you. The master then offloads model layers to each slave's GPU.
+- **Node0 Node**: Runs `llama-server` **locally** on your machine. Loads the model, handles all inference requests over an OpenAI-compatible HTTP API, and delegates GPU computation to node nodes via RPC.
+- **Node Nodes**: Remote machines running `rpc-server`. The GUI connects over SSH and launches the RPC server process for you. The node0 then offloads model layers to each node's GPU.
 
 This allows you to spread a large model (e.g., 70B+) across multiple GPUs on different machines on your local network.
 
@@ -57,20 +57,20 @@ This allows you to spread a large model (e.g., 70B+) across multiple GPUs on dif
 
 ## 2. Prerequisites
 
-### On your local machine (Master)
+### On your local machine (Node0)
 - **Linux or macOS** with [Node.js ≥ 18](https://nodejs.org/) installed
 - [`llama.cpp`](https://github.com/ggerganov/llama.cpp) compiled with CUDA support (`llama-server` binary)
 - A `.gguf` model file
 - NVIDIA GPU (recommended) — or CPU-only at reduced performance
 
-### On each remote machine (Slave)
+### On each remote machine (Node)
 - Linux with SSH server running (`openssh-server`)
 - `llama.cpp` compiled with CUDA support (`rpc-server` binary)
 - NVIDIA GPU(s) with CUDA drivers installed
 
 ### Network
 - All machines on the **same local network** (LAN) — do **not** expose RPC ports to the public internet (see [Section 10](#10-️-rpc-traffic-security))
-- SSH access from your local machine to each slave
+- SSH access from your local machine to each node
 
 ---
 
@@ -92,15 +92,15 @@ npm start
 
 ## 4. Quick Start
 
-1. **Configure your Master** — set the path to `llama-server` and your `.gguf` model.
-2. **Add Slave Nodes** — click **+ Add Node** for each remote GPU machine and fill in SSH credentials and the path to `rpc-server`.
-3. **Start Slaves first** — click **▶ Launch** on each slave card. Wait for the terminal to show `rpc_server: listening on …`.
-4. **Start Master** — click **Launch Master**. Watch it connect to slaves and begin loading model layers.
-5. **Query the API** — Once master shows `HTTP server listening`, send requests to `http://localhost:8080/v1/chat/completions`.
+1. **Configure your Node0** — set the path to `llama-server` and your `.gguf` model.
+2. **Add Node Nodes** — click **+ Add Node** for each remote GPU machine and fill in SSH credentials and the path to `rpc-server`.
+3. **Start Nodes first** — click **▶ Launch** on each node card. Wait for the terminal to show `rpc_server: listening on …`.
+4. **Start Node0** — click **Launch Node0**. Watch it connect to nodes and begin loading model layers.
+5. **Query the API** — Once node0 shows `HTTP server listening`, send requests to `http://localhost:8080/v1/chat/completions`.
 
 ---
 
-## 5. Configuring the Master Node
+## 5. Configuring the Node0 Node
 
 | Field | Description |
 |-------|-------------|
@@ -108,7 +108,7 @@ npm start
 | **Model file (.gguf)** | Path to your quantized model. Use 📂 to browse. |
 | **Port** | HTTP port for the inference API (default: `8080`). Checked for availability before launch. |
 | **Bind Host** | Network interface to bind. `0.0.0.0` accepts from all interfaces; `127.0.0.1` for localhost only. |
-| **--rpc (slave addresses)** | Auto-populated from your configured slave nodes. Read-only. |
+| **--rpc (node addresses)** | Auto-populated from your configured node nodes. Read-only. |
 | **GPU Layers (-ngl)** | Layers offloaded to GPU. `99` = maximum. Reduce if you run out of VRAM. |
 | **Context Size (-c)** | Maximum context length in tokens. Larger contexts require more VRAM. `32768` is a good default. |
 | **KV Cache Key Type (-ctk)** | `q8_0` recommended — excellent balance of quality vs. VRAM savings. |
@@ -121,25 +121,25 @@ The **Command Preview** box shows the exact command that will be executed — yo
 
 ---
 
-## 6. Configuring Slave Nodes
+## 6. Configuring Node Nodes
 
-Click **+ Add Node** to add a slave card. Each card has:
+Click **+ Add Node** to add a node card. Each card has:
 
 | Field | Description |
 |-------|-------------|
 | **Node name** | A friendly label (editable inline). |
-| **IP Address** | The slave machine's LAN IP. Also used as the `-H` bind address for `rpc-server`. |
+| **IP Address** | The node machine's LAN IP. Also used as the `-H` bind address for `rpc-server`. |
 | **SSH Username** | The user account on the remote machine. |
 | **SSH Password** | Password for SSH authentication. ⚠️ **Read Section 9 — SSH Keys are strongly preferred.** |
 | **rpc-server path (remote)** | Full path to the `rpc-server` binary on the remote machine. `~` expansion is supported. |
-| **RPC Port (-p)** | Port `rpc-server` listens on (default: `52396`). Must match across master and slave. |
+| **RPC Port (-p)** | Port `rpc-server` listens on (default: `52396`). Must match across node0 and node. |
 | **Additional Flags** | Extra flags for `rpc-server` (e.g., `--mem-base 0`). |
 
 ### Test SSH button
-Click **Test SSH** on any slave card to verify connectivity before launching. It opens and immediately closes an SSH connection — it does not run any commands.
+Click **Test SSH** on any node card to verify connectivity before launching. It opens and immediately closes an SSH connection — it does not run any commands.
 
 ### Remote Port Check
-Before launching a slave, the app does an SSH read-only port check (`ss -tlnp`) to verify the RPC port is not already in use.
+Before launching a node, the app does an SSH read-only port check (`ss -tlnp`) to verify the RPC port is not already in use.
 
 ---
 
@@ -148,19 +148,19 @@ Before launching a slave, the app does an SSH read-only port check (`ss -tlnp`) 
 ### Correct Launch Order
 
 > [!IMPORTANT]
-> **Always start Slave Nodes BEFORE the Master.** The master needs the RPC servers to already be listening when it loads model layers.
+> **Always start Node Nodes BEFORE the Node0.** The node0 needs the RPC servers to already be listening when it loads model layers.
 
 ```
-Step 1: Launch all Slave Nodes  →  Wait for "rpc_server: listening on …"
-Step 2: Launch Master           →  Wait for "HTTP server listening on …"
+Step 1: Launch all Node Nodes  →  Wait for "rpc_server: listening on …"
+Step 2: Launch Node0           →  Wait for "HTTP server listening on …"
 Step 3: Send API requests       →  curl / LM Studio / any OpenAI-compat client
 ```
 
 ### Stopping
 
-- Click **■ Stop Master** to terminate the local `llama-server` process.
-- Click **■ Stop** on each slave card to send `SIGTERM` and close the SSH session.
-- Closing the app sends a `pkill -f rpc-server` to each slave before disconnecting.
+- Click **■ Stop Node0** to terminate the local `llama-server` process.
+- Click **■ Stop** on each node card to send `SIGTERM` and close the SSH session.
+- Closing the app sends a `pkill -f rpc-server` to each node before disconnecting.
 
 ---
 
@@ -174,7 +174,7 @@ Once running, each panel displays three live GPU dials (refreshed every 2.5s via
 | **VRAM Usage** | Memory used vs total | 🟡 >75% · 🔴 >92% |
 | **Power Draw** | Watts (scaled to 350W max) | 🟡 >80% · 🔴 >95% |
 
-Slaves reuse their existing SSH connection for GPU polling — no extra connections are opened.
+Nodes reuse their existing SSH connection for GPU polling — no extra connections are opened.
 
 ---
 
@@ -195,7 +195,7 @@ SSH password authentication requires transmitting a password over the network (e
 # 1. Generate an Ed25519 key pair (modern, fast, secure)
 ssh-keygen -t ed25519 -C "llama-cluster" -f ~/.ssh/llama_cluster_key
 
-# 2. Copy the public key to each slave machine
+# 2. Copy the public key to each node machine
 ssh-copy-id -i ~/.ssh/llama_cluster_key.pub ubuntu@192.168.8.101
 ssh-copy-id -i ~/.ssh/llama_cluster_key.pub ubuntu@192.168.8.102
 
@@ -216,12 +216,12 @@ ssh -i ~/.ssh/llama_cluster_key ubuntu@192.168.8.101
 >
 > Then enter `gpu-node-1` as the IP and leave the password blank. The `ssh2` library will fall back to your SSH agent or `~/.ssh/config`.
 
-### Disabling Password Authentication on Slaves
+### Disabling Password Authentication on Nodes
 
-Once you have keys working, **disable password auth** on each slave:
+Once you have keys working, **disable password auth** on each node:
 
 ```bash
-# On each slave machine:
+# On each node machine:
 sudo nano /etc/ssh/sshd_config
 
 # Set these values:
@@ -236,7 +236,7 @@ This means even if someone gets your password, they cannot log in via SSH.
 
 ### Additional SSH Hardening
 
-- **Use a non-standard SSH port**: Change from `22` to reduce automated scanning (update the port field in the slave card).
+- **Use a non-standard SSH port**: Change from `22` to reduce automated scanning (update the port field in the node card).
 - **Use `fail2ban`**: Automatically blocks IPs with repeated failed logins.
 - **Use `ufw` or `iptables`**: Restrict SSH access to only your local subnet:
   ```bash
@@ -256,7 +256,7 @@ This means even if someone gets your password, they cannot log in via SSH.
 1. **LAN Only**: Only run this on a trusted private network. All nodes should be on the same physical network or VLAN.
 2. **Firewall RPC Ports**: Block port `52396` (or whichever port you use) from external access:
    ```bash
-   # On each slave — allow RPC only from master's IP
+   # On each node — allow RPC only from node0's IP
    sudo ufw allow from 192.168.8.100 to any port 52396
    sudo ufw deny 52396
    ```
@@ -264,20 +264,20 @@ This means even if someone gets your password, they cannot log in via SSH.
 
 ### Using SSH Tunnels for Extra Security
 
-If you need to connect to a slave over an untrusted network, use SSH port forwarding to encrypt the RPC traffic:
+If you need to connect to a node over an untrusted network, use SSH port forwarding to encrypt the RPC traffic:
 
 ```bash
 # On your local machine, create an encrypted tunnel for the RPC port:
 ssh -L 52396:localhost:52396 -N ubuntu@192.168.8.101
 
-# Then in the GUI, set the slave IP to 127.0.0.1 — traffic goes through the SSH tunnel
+# Then in the GUI, set the node IP to 127.0.0.1 — traffic goes through the SSH tunnel
 ```
 
 ---
 
 ## 11. Settings & Persistence
 
-All settings are automatically saved using `electron-store` with AES encryption. Your configuration (paths, slave IPs/credentials, parameters) is stored in:
+All settings are automatically saved using `electron-store` with AES encryption. Your configuration (paths, node IPs/credentials, parameters) is stored in:
 
 | Platform | Location |
 |----------|----------|
@@ -295,11 +295,11 @@ All settings are automatically saved using `electron-store` with AES encryption.
 ### SSH Connection Fails
 
 - **"Authentication failed"**: Wrong username/password. If using keys, ensure `~/.ssh/config` is set up correctly.
-- **"Connection refused"**: SSH daemon not running on slave (`sudo systemctl start sshd`).
+- **"Connection refused"**: SSH daemon not running on node (`sudo systemctl start sshd`).
 - **"Host unreachable"**: Check that both machines are on the same network and IPs are correct.
 - **Timeout**: Check firewall rules — port 22 may be blocked.
 
-### Master Fails to Start
+### Node0 Fails to Start
 
 - **"Port already in use"**: Another process is using the configured port. Change the port or kill the conflicting process (`fuser -k 8080/tcp`).
 - **"No such file"**: Binary path is wrong. Use the 📂 browser to locate it.
@@ -314,9 +314,9 @@ All settings are automatically saved using `electron-store` with AES encryption.
 ### GPU Dials Show No Data
 
 - Verify `nvidia-smi` is installed on the relevant machine.
-- Remote GPU metrics only appear after a slave is in the **Running** state and SSH is active.
+- Remote GPU metrics only appear after a node is in the **Running** state and SSH is active.
 
-### Slave Terminal Shows `bash: rpc-server: command not found`
+### Node Terminal Shows `bash: rpc-server: command not found`
 
 - The full path to `rpc-server` is required. Update the **rpc-server path** field:
   ```

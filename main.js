@@ -27,7 +27,7 @@ const SCREENSHOT_MOCK_STATE = {
   nParallel: '2',
   flashAttn: 'auto',
   masterExtraFlags: '',
-  slaves: [
+  nodes: [
     {
       id: 'slave_1', label: 'GPU Node 1', ip: '192.168.8.101',
       username: 'ubuntu', password: '',
@@ -42,10 +42,10 @@ const SCREENSHOT_MOCK_STATE = {
 };
 
 let mainWindow;
-// Track running processes: { master: ChildProcess|null, slaves: { [id]: SSHClient|null } }
+// Track running processes: { node0: ChildProcess|null, nodes: { [id]: SSHClient|null } }
 const runningProcesses = {
-  master: null,
-  slaves: {}
+  node0: null,
+  nodes: {}
 };
 
 function createWindow() {
@@ -107,9 +107,9 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
-    // Kill master if running
-    if (runningProcesses.master) {
-      try { runningProcesses.master.kill('SIGTERM'); } catch (e) {}
+    // Kill node0 if running
+    if (runningProcesses.node0) {
+      try { runningProcesses.node0.kill('SIGTERM'); } catch (e) {}
     }
   });
 }
@@ -119,16 +119,16 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
 // ─── Cleanup on quit ─────────────────────────────────────────────────────────
-// Kills master process and sends SIGTERM to all remote rpc-server processes via SSH
+// Kills node0 process and sends SIGTERM to all remote rpc-server processes via SSH
 function cleanupAllProcesses() {
-  // Kill local master
-  if (runningProcesses.master) {
-    try { runningProcesses.master.kill('SIGTERM'); } catch (e) {}
-    runningProcesses.master = null;
+  // Kill local node0
+  if (runningProcesses.node0) {
+    try { runningProcesses.node0.kill('SIGTERM'); } catch (e) {}
+    runningProcesses.node0 = null;
   }
-  // Kill remote slaves: close SSH streams (sends SIGHUP to remote process)
+  // Kill remote nodes: close SSH streams (sends SIGHUP to remote process)
   // Also attempt an explicit pkill for reliability
-  Object.entries(runningProcesses.slaves).forEach(([id, entry]) => {
+  Object.entries(runningProcesses.nodes).forEach(([id, entry]) => {
     if (!entry) return;
     try {
       // Try to send a kill to the remote rpc-server before closing
@@ -143,7 +143,7 @@ function cleanupAllProcesses() {
       entry.conn?.end();
     } catch (e) {}
   });
-  runningProcesses.slaves = {};
+  runningProcesses.nodes = {};
 }
 
 app.on('will-quit', () => {
@@ -403,10 +403,10 @@ ipcMain.handle('port:killRemote', (_, { host, pid, username, password }) => {
   });
 });
 
-// ─── Launch Master (LOCAL / REMOTE SSH) ──────────────────────────────────────
-ipcMain.handle('master:launch', (_, { command, cwd, remoteOpts }) => {
-  if (runningProcesses.master) {
-    return { success: false, error: 'Master is already running.' };
+// ─── Launch Node0 (LOCAL / REMOTE SSH) ──────────────────────────────────────
+ipcMain.handle('node0:launch', (_, { command, cwd, remoteOpts }) => {
+  if (runningProcesses.node0) {
+    return { success: false, error: 'Node0 is already running.' };
   }
 
   if (remoteOpts && remoteOpts.enabled) {
@@ -424,28 +424,28 @@ ipcMain.handle('master:launch', (_, { command, cwd, remoteOpts }) => {
         conn.exec(shellWrapped, { pty: true }, (err, stream) => {
           if (err) {
             conn.end();
-            runningProcesses.master = null;
+            runningProcesses.node0 = null;
             return resolve({ success: false, error: err.message });
           }
 
-          runningProcesses.master = { conn, stream, creds, isRemote: true };
+          runningProcesses.node0 = { conn, stream, creds, isRemote: true };
 
           stream.on('data', (data) => {
-            mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stdout' });
+            mainWindow?.webContents.send('node0:output', { text: data.toString(), stream: 'stdout' });
           });
           stream.stderr.on('data', (data) => {
-            mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stderr' });
+            mainWindow?.webContents.send('node0:output', { text: data.toString(), stream: 'stderr' });
           });
           stream.on('close', (code) => {
             conn.end();
-            runningProcesses.master = null;
-            mainWindow?.webContents.send('master:stopped', { code });
+            runningProcesses.node0 = null;
+            mainWindow?.webContents.send('node0:stopped', { code });
           });
 
           resolve({ success: true });
         });
       }).on('error', (err) => {
-        runningProcesses.master = null;
+        runningProcesses.node0 = null;
         resolve({ success: false, error: err.message });
       }).connect(creds);
     });
@@ -458,21 +458,21 @@ ipcMain.handle('master:launch', (_, { command, cwd, remoteOpts }) => {
       let finalArgs = args;
       const proc = spawn(finalBin, finalArgs, { cwd: cwd || path.dirname(bin), shell: false });
 
-      runningProcesses.master = proc;
+      runningProcesses.node0 = proc;
 
       proc.stdout.on('data', (data) => {
-        mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stdout' });
+        mainWindow?.webContents.send('node0:output', { text: data.toString(), stream: 'stdout' });
       });
       proc.stderr.on('data', (data) => {
-        mainWindow?.webContents.send('master:output', { text: data.toString(), stream: 'stderr' });
+        mainWindow?.webContents.send('node0:output', { text: data.toString(), stream: 'stderr' });
       });
       proc.on('close', (code) => {
-        runningProcesses.master = null;
-        mainWindow?.webContents.send('master:stopped', { code });
+        runningProcesses.node0 = null;
+        mainWindow?.webContents.send('node0:stopped', { code });
       });
       proc.on('error', (err) => {
-        runningProcesses.master = null;
-        mainWindow?.webContents.send('master:error', { message: err.message });
+        runningProcesses.node0 = null;
+        mainWindow?.webContents.send('node0:error', { message: err.message });
       });
 
       return { success: true, pid: proc.pid };
@@ -482,12 +482,12 @@ ipcMain.handle('master:launch', (_, { command, cwd, remoteOpts }) => {
   }
 });
 
-// ─── Stop Master ─────────────────────────────────────────────────────────────
-ipcMain.handle('master:stop', () => {
-  if (runningProcesses.master) {
+// ─── Stop Node0 ─────────────────────────────────────────────────────────────
+ipcMain.handle('node0:stop', () => {
+  if (runningProcesses.node0) {
     try {
-      if (runningProcesses.master.isRemote) {
-        const entry = runningProcesses.master;
+      if (runningProcesses.node0.isRemote) {
+        const entry = runningProcesses.node0;
         // Send explicit remote kill before closing the connection
         const killConn = new SSHClient();
         if (entry.creds) {
@@ -498,9 +498,9 @@ ipcMain.handle('master:stop', () => {
         entry.stream?.close();
         entry.conn?.end();
       } else {
-        runningProcesses.master.kill('SIGTERM');
+        runningProcesses.node0.kill('SIGTERM');
       }
-      runningProcesses.master = null;
+      runningProcesses.node0 = null;
       return { success: true };
     } catch (e) {
       return { success: false, error: e.message };
@@ -509,12 +509,12 @@ ipcMain.handle('master:stop', () => {
   return { success: false, error: 'Not running' };
 });
 
-// ─── Launch Slave (REMOTE via SSH) ───────────────────────────────────────────
+// ─── Launch Node (REMOTE via SSH) ───────────────────────────────────────────
 // Uses 'bash -lc' so that ~ expands, PATH is loaded from the user's login shell,
 // and environment variables set in .bashrc / .profile are available.
-ipcMain.handle('slave:launch', (_, { slaveId, host, username, password, command }) => {
-  if (runningProcesses.slaves[slaveId]) {
-    return { success: false, error: 'Slave is already running.' };
+ipcMain.handle('node:launch', (_, { slaveId, host, username, password, command }) => {
+  if (runningProcesses.nodes[slaveId]) {
+    return { success: false, error: 'Node is already running.' };
   }
 
   // Escape single quotes in command for safe bash -lc wrapping
@@ -531,36 +531,36 @@ ipcMain.handle('slave:launch', (_, { slaveId, host, username, password, command 
       conn.exec(shellWrapped, (err, stream) => {
         if (err) {
           conn.end();
-          delete runningProcesses.slaves[slaveId];
+          delete runningProcesses.nodes[slaveId];
           return resolve({ success: false, error: err.message });
         }
 
-        runningProcesses.slaves[slaveId] = { conn, stream, creds };
+        runningProcesses.nodes[slaveId] = { conn, stream, creds };
 
         stream.on('data', (data) => {
-          mainWindow?.webContents.send('slave:output', { slaveId, text: data.toString(), stream: 'stdout' });
+          mainWindow?.webContents.send('node:output', { slaveId, text: data.toString(), stream: 'stdout' });
         });
         stream.stderr.on('data', (data) => {
-          mainWindow?.webContents.send('slave:output', { slaveId, text: data.toString(), stream: 'stderr' });
+          mainWindow?.webContents.send('node:output', { slaveId, text: data.toString(), stream: 'stderr' });
         });
         stream.on('close', (code) => {
           conn.end();
-          delete runningProcesses.slaves[slaveId];
-          mainWindow?.webContents.send('slave:stopped', { slaveId, code });
+          delete runningProcesses.nodes[slaveId];
+          mainWindow?.webContents.send('node:stopped', { slaveId, code });
         });
 
         resolve({ success: true });
       });
     }).on('error', (err) => {
-      delete runningProcesses.slaves[slaveId];
+      delete runningProcesses.nodes[slaveId];
       resolve({ success: false, error: err.message });
     }).connect(creds);
   });
 });
 
-// ─── Stop Slave ──────────────────────────────────────────────────────────────
-ipcMain.handle('slave:stop', (_, { slaveId }) => {
-  const entry = runningProcesses.slaves[slaveId];
+// ─── Stop Node ──────────────────────────────────────────────────────────────
+ipcMain.handle('node:stop', (_, { slaveId }) => {
+  const entry = runningProcesses.nodes[slaveId];
   if (entry) {
     try {
       // Send explicit remote kill before closing the connection
@@ -572,20 +572,20 @@ ipcMain.handle('slave:stop', (_, { slaveId }) => {
       }
       entry.stream?.close();
       entry.conn?.end();
-      delete runningProcesses.slaves[slaveId];
+      delete runningProcesses.nodes[slaveId];
       return { success: true };
     } catch (e) {
       return { success: false, error: e.message };
     }
   }
-  return { success: false, error: 'Slave not running' };
+  return { success: false, error: 'Node not running' };
 });
 
-// ─── GPU Stats (LOCAL / REMOTE SSH FOR MASTER) ───────────────────────────────
+// ─── GPU Stats (LOCAL / REMOTE SSH FOR NODE0) ───────────────────────────────
 ipcMain.handle('gpu:getStatsLocal', () => {
-  // If master is remote and running, fetch remote GPU stats instead!
-  if (runningProcesses.master && runningProcesses.master.isRemote && runningProcesses.master.conn) {
-    const entry = runningProcesses.master;
+  // If node0 is remote and running, fetch remote GPU stats instead!
+  if (runningProcesses.node0 && runningProcesses.node0.isRemote && runningProcesses.node0.conn) {
+    const entry = runningProcesses.node0;
     return new Promise((resolve) => {
       const query = 'utilization.gpu,memory.used,memory.total,power.draw';
       const cmd = `nvidia-smi --query-gpu=${query} --format=csv,noheader,nounits`;
@@ -629,7 +629,7 @@ ipcMain.handle('gpu:getStatsLocal', () => {
 
 // ─── GPU Stats (REMOTE via existing SSH) ─────────────────────────────────────
 ipcMain.handle('gpu:getStatsRemote', (_, { slaveId }) => {
-  const entry = runningProcesses.slaves[slaveId];
+  const entry = runningProcesses.nodes[slaveId];
   if (!entry || !entry.conn) return Promise.resolve({ success: false, error: 'Not connected' });
 
   return new Promise((resolve) => {

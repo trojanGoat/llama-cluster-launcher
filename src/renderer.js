@@ -1,7 +1,7 @@
 /* renderer.js — Llama Cluster Launcher UI logic */
 
 // ─── State ──────────────────────────────────────────────────────────────────
-let slaves = [];           // Array of slave config objects
+let nodes = [];           // Array of node config objects
 let masterRunning = false;
 let masterStatus = 'stopped';
 let slaveCounter = 0;
@@ -92,9 +92,9 @@ async function loadSettings() {
     if (nglSlider) nglSlider.value = saved.ngl;
   }
 
-  // Load slaves
-  if (saved.slaves && Array.isArray(saved.slaves)) {
-    saved.slaves.forEach(cfg => addSlaveCard(cfg));
+  // Load nodes
+  if (saved.nodes && Array.isArray(saved.nodes)) {
+    saved.nodes.forEach(cfg => addSlaveCard(cfg));
   }
 
   // Load broadcast
@@ -102,7 +102,7 @@ async function loadSettings() {
     document.getElementById('broadcastEnable').checked = true;
   }
 
-  // Load solo and remote master settings
+  // Load solo and remote node0 settings
   if (saved.soloModeEnable !== undefined) {
     const soloCb = document.getElementById('soloModeEnable');
     if (soloCb) soloCb.checked = saved.soloModeEnable;
@@ -132,8 +132,8 @@ function saveSetting(key, value) {
 }
 
 function saveAllSlaves() {
-  const configs = slaves.map(s => s.config);
-  saveSetting('slaves', configs);
+  const configs = nodes.map(s => s.config);
+  saveSetting('nodes', configs);
 }
 
 // ─── Broadcast Server Sync ───────────────────────────────────────────────────
@@ -189,14 +189,14 @@ async function setupBroadcastServer() {
 
 function syncClusterState() {
   const state = {
-    master: {
+    node0: {
       running: masterRunning,
       tokensToday: todayEvalTokens,
       port: document.getElementById('masterPort').value,
       host: document.getElementById('masterHost').value,
       gpuStats: masterGpuStats
     },
-    slaves: slaves.map(s => ({
+    nodes: nodes.map(s => ({
       id: s.config.id,
       label: s.config.label,
       ip: s.config.ip,
@@ -207,7 +207,7 @@ function syncClusterState() {
   window.api.updateClusterState(state);
 }
 
-// ─── Master listeners ─────────────────────────────────────────────────────────
+// ─── Node0 listeners ─────────────────────────────────────────────────────────
 function setupMasterListeners() {
   const liveFields = [
     'masterBinPath','modelPath','masterPort','masterHost',
@@ -338,7 +338,7 @@ document.getElementById('masterBinPath').addEventListener('blur', updateMasterVe
   }
 }
 
-// ─── Master command preview ───────────────────────────────────────────────────
+// ─── Node0 command preview ───────────────────────────────────────────────────
 function buildMasterCommand() {
   const bin     = document.getElementById('masterBinPath').value.trim() || './llama-server';
   const model   = document.getElementById('modelPath').value.trim();
@@ -382,7 +382,7 @@ function updateModelChip(filePath) {
   chip.style.display = 'inline-flex';
 }
 
-// ─── Master launch/stop ───────────────────────────────────────────────────────
+// ─── Node0 launch/stop ───────────────────────────────────────────────────────
 async function handleMasterLaunch() {
   const btn = document.getElementById('masterLaunchBtn');
   const icon = btn.querySelector('.btn-launch-icon');
@@ -392,7 +392,7 @@ async function handleMasterLaunch() {
     const res = await window.api.stopMaster();
     if (res.success) {
       setMasterStatus('stopped');
-      logMaster('⏹ Master stopped.', 'system');
+      logMaster('⏹ Node0 stopped.', 'system');
     } else {
       logMaster(`Error stopping: ${res.error}`, 'warn');
     }
@@ -472,7 +472,7 @@ async function handleMasterLaunch() {
   if (result.success) {
     masterRunning = true;
     setMasterStatus('warming');
-    logMaster(`✓ Master started (PID ${result.pid || 'remote'})`, 'success');
+    logMaster(`✓ Node0 started (PID ${result.pid || 'remote'})`, 'success');
     startHealthPolling();
   } else {
     setMasterStatus('error');
@@ -526,7 +526,7 @@ function setMasterStatus(status) {
     btn.classList.add('running');
     icon.textContent = '■';
     btn.querySelector('span:last-child') || (btn.lastChild.textContent = '');
-    btn.innerHTML = `<span class="btn-launch-icon">■</span> Stop Master`;
+    btn.innerHTML = `<span class="btn-launch-icon">■</span> Stop Node0`;
     masterRunning = true;
     document.getElementById('masterGpuMonitor').style.display = 'flex';
     
@@ -536,10 +536,10 @@ function setMasterStatus(status) {
     document.getElementById('masterTitleText').textContent = `${displayHost}:${port}`;
   } else {
     btn.classList.remove('running');
-    btn.innerHTML = `<span class="btn-launch-icon">▶</span> Launch Master`;
+    btn.innerHTML = `<span class="btn-launch-icon">▶</span> Launch Node0`;
     masterRunning = false;
     document.getElementById('masterGpuMonitor').style.display = 'none';
-    document.getElementById('masterTitleText').textContent = 'Master Node';
+    document.getElementById('masterTitleText').textContent = 'Node0 Node';
   }
 }
 
@@ -548,7 +548,7 @@ let masterBusyTimeout = null;
 // Buffer for incomplete terminal lines
 let masterTerminalBuffer = '';
 
-// ─── Master IPC callbacks ─────────────────────────────────────────────────────
+// ─── Node0 IPC callbacks ─────────────────────────────────────────────────────
 function setupMasterIPC() {
   window.api.onMasterOutput(({ text, stream }) => {
     masterTerminalBuffer += text;
@@ -668,7 +668,7 @@ function logMaster(text, cls = 'stdout', overwrite = false) {
   term.scrollTop = term.scrollHeight;
 }
 
-// ─── Slave nodes ──────────────────────────────────────────────────────────────
+// ─── Node nodes ──────────────────────────────────────────────────────────────
 document.getElementById('addSlaveBtn').addEventListener('click', () => {
   addSlaveCard();
   document.getElementById('slaveEmpty').style.display = 'none';
@@ -690,7 +690,7 @@ function addSlaveCard(cfg = {}) {
     },
     running: false
   };
-  slaves.push(slaveState);
+  nodes.push(slaveState);
 
   const card = buildSlaveCard(slaveState);
   document.getElementById('slaveList').appendChild(card);
@@ -705,7 +705,7 @@ function addSlaveCard(cfg = {}) {
 }
 
 async function updateSlaveVersion(id) {
-  const state = slaves.find(s => s.id === id);
+  const state = nodes.find(s => s.id === id);
   if (!state) return;
   const cfg = state.config;
   const vRes = await window.api.getLlamaVersionRemote({
@@ -721,82 +721,82 @@ function buildSlaveCard(state) {
   const { id, config } = state;
 
   const card = document.createElement('div');
-  card.className = 'slave-card';
+  card.className = 'node-card';
   card.id = `card_${id}`;
 
   card.innerHTML = `
-    <div class="slave-card-header" id="header_${id}">
-      <div class="slave-header-top">
+    <div class="node-card-header" id="header_${id}">
+      <div class="node-header-top">
         <div class="status-orb" id="orb_${id}"></div>
-        <input class="slave-label-input" id="label_${id}" type="text"
+        <input class="node-label-input" id="label_${id}" type="text"
           placeholder="Node name" value="${esc(config.label)}" />
-        <span class="slave-run-label" id="runLabel_${id}" style="display: none; font-weight: 700; font-size: 13px; color: var(--text-primary);"></span>
+        <span class="node-run-label" id="runLabel_${id}" style="display: none; font-weight: 700; font-size: 13px; color: var(--text-primary);"></span>
         <span id="version_${id}" style="font-size: 11px; color: var(--text-muted); margin-left: 10px; font-weight: normal; vertical-align: middle;"></span>
         <span class="collapse-arrow" id="arrow_${id}" style="margin-left: auto;">▾</span>
       </div>
-      <div class="slave-header-actions">
-        <span class="slave-status-text" id="statusText_${id}">Stopped</span>
+      <div class="node-header-actions">
+        <span class="node-status-text" id="statusText_${id}">Stopped</span>
         <button class="btn-ssh-test" id="sshTest_${id}">Test SSH</button>
-        <button class="btn-slave-launch" id="launch_${id}">▶ Launch</button>
-        <button class="btn-slave-remove" id="remove_${id}" title="Remove node">✕</button>
+        <button class="btn-node-launch" id="launch_${id}">▶ Launch</button>
+        <button class="btn-node-remove" id="remove_${id}" title="Remove node">✕</button>
       </div>
     </div>
 
-    <div class="slave-card-body">
+    <div class="node-card-body">
       <!-- SSH credentials -->
-      <div class="slave-fields-row">
-        <div class="slave-field-group">
-          <div class="slave-field-label">IP Address
+      <div class="node-fields-row">
+        <div class="node-field-group">
+          <div class="node-field-label">IP Address
             <span class="help-tip" data-tip="The remote machine's IP. Also used as the -H argument for rpc-server (the address it listens on).">?</span>
           </div>
           <input type="text" id="ip_${id}" class="field-input mono" placeholder="192.168.8.2" value="${esc(config.ip)}" />
         </div>
-        <div class="slave-field-group">
-          <div class="slave-field-label">SSH Username</div>
+        <div class="node-field-group">
+          <div class="node-field-label">SSH Username</div>
           <input type="text" id="user_${id}" class="field-input" placeholder="ubuntu" value="${esc(config.username)}" />
         </div>
       </div>
-      <div class="slave-fields-row">
-        <div class="slave-field-group">
-          <div class="slave-field-label">SSH Password</div>
+      <div class="node-fields-row">
+        <div class="node-field-group">
+          <div class="node-field-label">SSH Password</div>
           <input type="password" id="pass_${id}" class="field-input" placeholder="••••••••" value="${esc(config.password)}" autocomplete="new-password" />
         </div>
-        <div class="slave-field-group">
-          <div class="slave-field-label">rpc-server path (remote)</div>
+        <div class="node-field-group">
+          <div class="node-field-label">rpc-server path (remote)</div>
           <input type="text" id="bin_${id}" class="field-input mono" placeholder="~/llama.cpp/build/bin/rpc-server" value="${esc(config.binPath)}" />
         </div>
       </div>
       <!-- RPC config & Extra flags -->
-      <div class="slave-fields-row">
-        <div class="slave-field-group">
-          <div class="slave-field-label">
+      <div class="node-fields-row">
+        <div class="node-field-group">
+          <div class="node-field-label">
             RPC Port (-p)
-            <span class="help-tip" data-tip="Port rpc-server listens on. Must match the port in master's --rpc flag (e.g. 52396). Checked on the remote machine via SSH before launch.">?</span>
+            <span class="help-tip" data-tip="Port rpc-server listens on. Must match the port in node0's --rpc flag (e.g. 52396). Checked on the remote machine via SSH before launch.">?</span>
           </div>
           <div class="port-row">
             <input type="number" id="port_${id}" class="field-input" value="${esc(config.port)}" min="1024" max="65535" />
             <span class="port-status" id="portStatus_${id}" title="Remote port status"></span>
           </div>
         </div>
-        <div class="slave-field-group">
-          <div class="slave-field-label">Additional Flags</div>
+        <div class="node-field-group">
+          <div class="node-field-label">Additional Flags</div>
           <input type="text" id="extra_${id}" class="field-input mono" placeholder="e.g. --mem-base 0" value="${esc(config.extraFlags)}" />
         </div>
       </div>
       <!-- Command preview -->
-      <div class="slave-cmd-row">
-        <div class="slave-cmd-preview" id="cmdPreview_${id}"></div>
+      <div class="node-cmd-row">
+        <div class="node-cmd-preview" id="cmdPreview_${id}"></div>
         <button class="btn-copy" id="copy_${id}" title="Copy command">⎘</button>
       </div>
       <!-- Terminal -->
-      <div class="slave-terminal-wrap">
+      <div class="node-terminal-wrap">
         <div class="terminal-header">
           <span class="terminal-title">Output</span>
           <button class="btn-clear-term" id="clearTerm_${id}">Clear</button>
         </div>
-        <div class="slave-terminal" id="term_${id}"></div>
+        <div class="node-terminal" id="term_${id}"></div>
       </div>
-    </div><!-- /.slave-card-body -->
+    </div><!-- /.node-card-body -->
 
     <div class="gpu-monitor" id="gpuMonitor_${id}" style="display:none">
       <div class="gpu-stat-item">
@@ -850,7 +850,7 @@ function buildSlaveCard(state) {
   // Collapse header (click on top row only, not action buttons)
   card.querySelector(`#header_${id}`).addEventListener('click', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-    if (e.target.closest('.slave-header-actions')) return;
+    if (e.target.closest('.node-header-actions')) return;
     card.classList.toggle('collapsed');
   });
 
@@ -860,10 +860,10 @@ function buildSlaveCard(state) {
       window.api.stopSlave({ slaveId: id });
     }
     card.remove();
-    slaves = slaves.filter(s => s.id !== id);
+    nodes = nodes.filter(s => s.id !== id);
     renderRpcField();
     saveAllSlaves();
-    if (slaves.length === 0) document.getElementById('slaveEmpty').style.display = 'flex';
+    if (nodes.length === 0) document.getElementById('slaveEmpty').style.display = 'flex';
   });
 
   // SSH Test
@@ -954,7 +954,7 @@ function buildSlaveCommand(cfg) {
   return cmd;
 }
 
-// ─── Slave launch/stop ────────────────────────────────────────────────────────
+// ─── Node launch/stop ────────────────────────────────────────────────────────
 async function handleSlaveLaunch(state, card) {
   const { id, config } = state;
   const launchBtn = card.querySelector(`#launch_${id}`);
@@ -962,7 +962,7 @@ async function handleSlaveLaunch(state, card) {
   if (state.running) {
     await window.api.stopSlave({ slaveId: id });
     setSlaveStatus(state, card, 'stopped');
-    logSlave(id, '⏹ Slave stopped.', 'system');
+    logSlave(id, '⏹ Node stopped.', 'system');
     return;
   }
 
@@ -1025,13 +1025,13 @@ function setSlaveStatus(state, card, status) {
   const monitor = card.querySelector(`#gpuMonitor_${id}`);
 
   orb.className = `status-orb ${status === 'stopped' ? '' : status}`;
-  card.className = `slave-card ${status === 'stopped' ? '' : status}`;
+  card.className = `node-card ${status === 'stopped' ? '' : status}`;
 
   const labels = { stopped:'Stopped', starting:'Connecting…', running:'Running', error:'Error' };
   txt.textContent = labels[status] || status;
 
   if (status === 'running') {
-    btn.className = 'btn-slave-launch running';
+    btn.className = 'btn-node-launch running';
     btn.textContent = '■ Stop';
     state.running = true;
     if (monitor) monitor.style.display = 'flex';
@@ -1044,7 +1044,7 @@ function setSlaveStatus(state, card, status) {
       runLabel.style.display = 'inline';
     }
   } else {
-    btn.className = 'btn-slave-launch';
+    btn.className = 'btn-node-launch';
     btn.textContent = '▶ Launch';
     state.running = false;
     if (monitor) monitor.style.display = 'none';
@@ -1058,7 +1058,7 @@ function setSlaveStatus(state, card, status) {
   }
 }
 
-// ─── Slave IPC callbacks ──────────────────────────────────────────────────────
+// ─── Node IPC callbacks ──────────────────────────────────────────────────────
 function setupSlaveIPC() {
   window.api.onSlaveOutput(({ slaveId, text, stream }) => {
     text.split('\n').forEach(line => {
@@ -1069,7 +1069,7 @@ function setupSlaveIPC() {
   });
 
   window.api.onSlaveStopped(({ slaveId, code }) => {
-    const state = slaves.find(s => s.id === slaveId);
+    const state = nodes.find(s => s.id === slaveId);
     const card  = document.getElementById(`card_${slaveId}`);
     if (state && card) setSlaveStatus(state, card, 'stopped');
     logSlave(slaveId, `⏹ Process exited (code ${code})`, 'system');
@@ -1089,7 +1089,7 @@ function logSlave(slaveId, text, cls = 'stdout') {
 // ─── RPC field (auto-filled) ──────────────────────────────────────────────────
 function renderRpcField() {
   const rpcEl = document.getElementById('rpcAddresses');
-  const addrs = slaves
+  const addrs = nodes
     .filter(s => s.config.ip && s.config.port)
     .map(s => `${s.config.ip}:${s.config.port}`);
   rpcEl.value = addrs.join(',');
@@ -1102,17 +1102,17 @@ let statsInterval = null;
 function startStatsPolling() {
   if (statsInterval) clearInterval(statsInterval);
   statsInterval = setInterval(async () => {
-    // Master
+    // Node0
     if (masterRunning) {
       const stats = await window.api.gpuGetStatsLocal();
-      if (stats.success) updateGpuUI('master', stats);
+      if (stats.success) updateGpuUI('node0', stats);
     }
 
-    // Slaves
-    for (const slave of slaves) {
-      if (slave.running) {
-        const stats = await window.api.gpuGetStatsRemote({ slaveId: slave.id });
-        if (stats.success) updateGpuUI(slave.id, stats);
+    // Nodes
+    for (const node of nodes) {
+      if (node.running) {
+        const stats = await window.api.gpuGetStatsRemote({ slaveId: node.id });
+        if (stats.success) updateGpuUI(node.id, stats);
       }
     }
   }, 2500);
@@ -1125,11 +1125,11 @@ function updateGpuUI(id, stats) {
     return `hsl(${h}, 65%, 50%)`;
   };
 
-  const isMaster = id === 'master';
+  const isMaster = id === 'node0';
   if (isMaster) {
     masterGpuStats = stats;
   } else {
-    const s = slaves.find(x => x.id === id);
+    const s = nodes.find(x => x.id === id);
     if (s) s.lastGpuStats = stats;
   }
 
@@ -1348,11 +1348,11 @@ if (!window.api.isScreenshotMode) {
 if (window.api.isScreenshotMode) {
   // Wait for all cards to render first
   setTimeout(async () => {
-    // ── Put master into running state ──
+    // ── Put node0 into running state ──
     masterRunning = true;
     setMasterStatus('running');
 
-    // Fill master terminal with realistic startup logs
+    // Fill node0 terminal with realistic startup logs
     const masterLogs = [
       { text: '▶ Launching: /opt/llama.cpp/build/bin/llama-server -m /models/Llama-3.3-70B-Instruct-Q4_K_M.gguf --port 8080 --host 0.0.0.0 -ngl 99 --rpc 192.168.8.101:52396,192.168.8.102:52396 -c 32768 -ctk q8_0 -ctv q8_0 -np 2 --flash-attn auto', cls: 'info' },
       { text: 'ggml_cuda_init: GGML_CUDA_FORCE_MMQ: no', cls: 'stdout' },
@@ -1370,16 +1370,16 @@ if (window.api.isScreenshotMode) {
       { text: 'llama_new_context_with_model: n_ctx = 32768, n_batch = 2048, n_ubatch = 512', cls: 'stdout' },
       { text: 'llama_new_context_with_model: flash_attn = 1', cls: 'stdout' },
       { text: 'llama_kv_cache_init:      CUDA0 KV buffer size =  2048.00 MiB', cls: 'stdout' },
-      { text: '✓ Master started (PID 18432)', cls: 'success' },
+      { text: '✓ Node0 started (PID 18432)', cls: 'success' },
       { text: 'llama_server_listen: HTTP server listening on 0.0.0.0:8080', cls: 'success' },
       { text: 'slot available for connections, processing requests...', cls: 'success' },
     ];
     masterLogs.forEach(({ text, cls }) => logMaster(text, cls));
 
-    // ── GPU dials for master (RTX 4090: 42% util, 18.4/24G VRAM, 285W) ──
-    updateGpuUI('master', { util: 42, memUsed: 18842, memTotal: 24576, power: 285 });
+    // ── GPU dials for node0 (RTX 4090: 42% util, 18.4/24G VRAM, 285W) ──
+    updateGpuUI('node0', { util: 42, memUsed: 18842, memTotal: 24576, power: 285 });
 
-    // ── Put slave nodes into running state ──
+    // ── Put node nodes into running state ──
     const slaveConfigs = [
       {
         mockLogs: [
@@ -1405,7 +1405,7 @@ if (window.api.isScreenshotMode) {
       },
     ];
 
-    slaves.forEach((slaveState, i) => {
+    nodes.forEach((slaveState, i) => {
       const cfg = slaveConfigs[i];
       if (!cfg) return;
       const card = document.getElementById(`card_${slaveState.id}`);

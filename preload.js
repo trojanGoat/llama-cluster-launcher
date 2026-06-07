@@ -19,18 +19,18 @@ contextBridge.exposeInMainWorld('api', {
   killPortRemote: (opts) => ipcRenderer.invoke('port:killRemote', opts),
   checkHealth: (opts) => ipcRenderer.invoke('server:checkHealth', opts),
 
-  // Master process
-  launchMaster: (opts) => ipcRenderer.invoke('master:launch', opts),
-  stopMaster: () => ipcRenderer.invoke('master:stop'),
-  onMasterOutput: (cb) => ipcRenderer.on('master:output', (_, d) => cb(d)),
-  onMasterStopped: (cb) => ipcRenderer.on('master:stopped', (_, d) => cb(d)),
-  onMasterError: (cb) => ipcRenderer.on('master:error', (_, d) => cb(d)),
+  // Node0 process
+  launchMaster: (opts) => ipcRenderer.invoke('node0:launch', opts),
+  stopMaster: () => ipcRenderer.invoke('node0:stop'),
+  onMasterOutput: (cb) => ipcRenderer.on('node0:output', (_, d) => cb(d)),
+  onMasterStopped: (cb) => ipcRenderer.on('node0:stopped', (_, d) => cb(d)),
+  onMasterError: (cb) => ipcRenderer.on('node0:error', (_, d) => cb(d)),
 
-  // Slave processes
-  launchSlave: (opts) => ipcRenderer.invoke('slave:launch', opts),
-  stopSlave: (opts) => ipcRenderer.invoke('slave:stop', opts),
-  onSlaveOutput: (cb) => ipcRenderer.on('slave:output', (_, d) => cb(d)),
-  onSlaveStopped: (cb) => ipcRenderer.on('slave:stopped', (_, d) => cb(d)),
+  // Node processes
+  launchSlave: (opts) => ipcRenderer.invoke('node:launch', opts),
+  stopSlave: (opts) => ipcRenderer.invoke('node:stop', opts),
+  onSlaveOutput: (cb) => ipcRenderer.on('node:output', (_, d) => cb(d)),
+  onSlaveStopped: (cb) => ipcRenderer.on('node:stopped', (_, d) => cb(d)),
 
   // SSH test
   testSSH: (opts) => ipcRenderer.invoke('ssh:test', opts),

@@ -23,12 +23,12 @@
 
   <div class="app-layout">
 
-    <!-- ══════════════════ MASTER PANEL ══════════════════ -->
-    <div class="panel master-panel" id="masterPanel">
+    <!-- ══════════════════ NODE0 PANEL ══════════════════ -->
+    <div class="panel node0-panel" id="masterPanel">
       <div class="panel-header" id="masterPanelHeader">
         <div class="panel-title-row">
           <div class="status-orb" id="masterOrb"></div>
-          <h2 class="panel-title"><span id="masterTitleText">Master Node</span> <span id="masterVersion" style="font-size: 11px; color: var(--text-muted); margin-left: 10px; font-weight: normal; vertical-align: middle;"></span></h2>
+          <h2 class="panel-title"><span id="masterTitleText">Node0 Node</span> <span id="masterVersion" style="font-size: 11px; color: var(--text-muted); margin-left: 10px; font-weight: normal; vertical-align: middle;"></span></h2>
           <span class="status-badge" id="masterStatusBadge">Stopped</span>
           <button class="btn-panel-collapse" id="masterCollapseBtn" title="Minimize/Expand panel">▾</button>
         </div>
@@ -45,7 +45,7 @@
               </div>
             </div>
             <button class="btn-launch" id="masterLaunchBtn" style="margin: 0; padding: 6px 16px; font-size: 0.85em; min-width: 140px; justify-content: center;">
-              <span class="btn-launch-icon">▶</span> Launch Master
+              <span class="btn-launch-icon">▶</span> Launch Node0
             </button>
           </div>
           <div class="token-chart-wrap">
@@ -139,10 +139,10 @@
               </div>
               <div class="field-row" style="margin-top: 10px;">
                 <label class="field-label" for="rpcAddresses">
-                  --rpc (slave addresses)
-                  <span class="help-tip" data-tip="Comma-separated list of RPC slave addresses (host:port). Auto-populated from your active slave nodes.">?</span>
+                  --rpc (node addresses)
+                  <span class="help-tip" data-tip="Comma-separated list of RPC node addresses (host:port). Auto-populated from your active node nodes.">?</span>
                 </label>
-                <input type="text" id="rpcAddresses" class="field-input mono" placeholder="Auto-filled from slave nodes…" readonly />
+                <input type="text" id="rpcAddresses" class="field-input mono" placeholder="Auto-filled from node nodes…" readonly />
               </div>
             </div>
 
@@ -153,18 +153,18 @@
                 <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
                   <input type="checkbox" id="soloModeEnable" class="field-checkbox" />
                   <label class="field-label" for="soloModeEnable" style="margin-bottom: 0; cursor: pointer;">
-                    Solo Mode (Disable Slaves)
+                    Solo Mode (Disable Nodes)
                   </label>
                 </div>
                 <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
                   <input type="checkbox" id="remoteMasterEnable" class="field-checkbox" />
                   <label class="field-label" for="remoteMasterEnable" style="margin-bottom: 0; cursor: pointer;">
-                    Run Master Node Remotely
+                    Run Node0 Node Remotely
                   </label>
                 </div>
               </div>
 
-              <!-- Remote Master SSH Credentials -->
+              <!-- Remote Node0 SSH Credentials -->
               <div id="remoteMasterCreds" class="fields-grid" style="display: none; padding-top: 8px; margin-top: 8px;">
                 <div class="field-row">
                   <label class="field-label" for="masterRemoteHost">SSH Host</label>
@@ -355,10 +355,10 @@
               </div>
               <div class="field-row" style="margin-top: 10px;">
                 <label class="field-label" for="rpcAddresses">
-                  --rpc (slave addresses)
-                  <span class="help-tip" data-tip="Comma-separated list of RPC slave addresses (host:port). Auto-populated from your active slave nodes.">?</span>
+                  --rpc (node addresses)
+                  <span class="help-tip" data-tip="Comma-separated list of RPC node addresses (host:port). Auto-populated from your active node nodes.">?</span>
                 </label>
-                <input type="text" id="rpcAddresses" class="field-input mono" placeholder="Auto-filled from slave nodes…" readonly />
+                <input type="text" id="rpcAddresses" class="field-input mono" placeholder="Auto-filled from node nodes…" readonly />
               </div>
             </div>
 
@@ -369,18 +369,18 @@
                 <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
                   <input type="checkbox" id="soloModeEnable" class="field-checkbox" />
                   <label class="field-label" for="soloModeEnable" style="margin-bottom: 0; cursor: pointer;">
-                    Solo Mode (Disable Slaves)
+                    Solo Mode (Disable Nodes)
                   </label>
                 </div>
                 <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
                   <input type="checkbox" id="remoteMasterEnable" class="field-checkbox" />
                   <label class="field-label" for="remoteMasterEnable" style="margin-bottom: 0; cursor: pointer;">
-                    Run Master Node Remotely
+                    Run Node0 Node Remotely
                   </label>
                 </div>
               </div>
 
-              <!-- Remote Master SSH Credentials -->
+              <!-- Remote Node0 SSH Credentials -->
               <div id="remoteMasterCreds" class="fields-grid" style="display: none; padding-top: 8px; margin-top: 8px;">
                 <div class="field-row">
                   <label class="field-label" for="masterRemoteHost">SSH Host</label>
@@ -500,26 +500,26 @@
       </div>
     </div>
       
-    <!-- ══════════════════ SLAVE PANEL ══════════════════ -->
-    <div class="panel slave-panel" id="slavePanel">
+    <!-- ══════════════════ NODE PANEL ══════════════════ -->
+    <div class="panel node-panel" id="slavePanel">
       <div class="panel-header" id="slavePanelHeader">
         <div class="panel-title-row">
-          <h2 class="panel-title">Slave Nodes</h2>
-          <button class="btn-add-slave" id="addSlaveBtn">+ Add Node</button>
+          <h2 class="panel-title">Node Nodes</h2>
+          <button class="btn-add-node" id="addSlaveBtn">+ Add Node</button>
           <button class="btn-panel-collapse" id="slaveCollapseBtn" title="Minimize/Expand panel">▾</button>
         </div>
         <p class="panel-subtitle">Remote machines — rpc-server launched via SSH</p>
       </div>
 
       <div class="panel-body">
-        <div class="slave-list" id="slaveList">
-          <!-- Slave cards injected by JS -->
+        <div class="node-list" id="slaveList">
+          <!-- Node cards injected by JS -->
         </div>
 
-        <div class="slave-empty" id="slaveEmpty">
-          <div class="slave-empty-icon">🖥️</div>
-          <p>No slave nodes yet.</p>
-          <p class="slave-empty-sub">Click <strong>+ Add Node</strong> to configure a remote machine.</p>
+        <div class="node-empty" id="slaveEmpty">
+          <div class="node-empty-icon">🖥️</div>
+          <p>No node nodes yet.</p>
+          <p class="node-empty-sub">Click <strong>+ Add Node</strong> to configure a remote machine.</p>
         </div>
       </div>
     </div>
@@ -554,13 +554,13 @@
       <p class="version">v1.0.2</p>
     </div>
     <div class="modal-body">
-      <p>A GUI launcher for <strong>llama.cpp</strong> clustered inference, enabling distributed model serving across a master node and SSH-connected slave nodes.</p>
+      <p>A GUI launcher for <strong>llama.cpp</strong> clustered inference, enabling distributed model serving across a node0 node and SSH-connected node nodes.</p>
       
       <h3>Getting Started</h3>
       <ol>
         <li>Ensure <code>llama.cpp</code> is compiled on all nodes.</li>
-        <li>Configure SSH access from the master to your slave nodes.</li>
-        <li>Launch the app and enter your cluster details (master IP, slave IPs, SSH credentials).</li>
+        <li>Configure SSH access from the node0 to your node nodes.</li>
+        <li>Launch the app and enter your cluster details (node0 IP, node IPs, SSH credentials).</li>
         <li>Select a model and click <strong>Start Cluster</strong> to deploy inference services.</li>
         <li>Use the provided endpoint to send inference requests.</li>
       </ol>
