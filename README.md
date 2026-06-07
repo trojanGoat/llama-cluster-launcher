@@ -39,6 +39,8 @@ A professional-grade Electron GUI for managing distributed `llama.cpp` inference
 
 ### Prerequisites
 
+> **Note on `llama.cpp`**: This launcher manages distributed instances of [llama.cpp](https://github.com/ggerganov/llama.cpp). We strongly recommend cloning the official repository (`git clone https://github.com/ggerganov/llama.cpp`) and building it from source. This is the easiest way to keep your binaries up to date with the latest improvements.
+
 - **Local**: Linux or macOS with [Node.js ≥ 18](https://nodejs.org/)
 - **Remote**: SSH access to machines with `llama.cpp` compiled (with CUDA) and `rpc-server` available
 - **Hardware**: NVIDIA GPU(s) recommended for `nvidia-smi` metrics and CUDA offloading
