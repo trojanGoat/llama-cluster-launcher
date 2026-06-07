@@ -35,16 +35,16 @@
         
         let html = '';
         
-        // Master
+        // Node0
         html += '<div class="card">';
-        html += `<h2>Master Node <span class="badge ${data.master.running ? 'running' : ''}">${data.master.running ? 'Running' : 'Stopped'}</span></h2>`;
+        html += `<h2>Node0 Node <span class="badge ${data.node0.running ? 'running' : ''}">${data.node0.running ? 'Running' : 'Stopped'}</span></h2>`;
         
-        const host = data.master.host === '0.0.0.0' ? window.location.hostname : data.master.host;
-        html += `<div class="info-row"><span>Endpoint:</span> <a href="http://${host}:${data.master.port}" target="_blank" style="color: #4CAF50;">http://${host}:${data.master.port}</a></div>`;
-        html += `<div class="info-row"><span>Tokens Today:</span> <span>${data.master.tokensToday}</span></div>`;
+        const host = data.node0.host === '0.0.0.0' ? window.location.hostname : data.node0.host;
+        html += `<div class="info-row"><span>Endpoint:</span> <a href="http://${host}:${data.node0.port}" target="_blank" style="color: #4CAF50;">http://${host}:${data.node0.port}</a></div>`;
+        html += `<div class="info-row"><span>Tokens Today:</span> <span>${data.node0.tokensToday}</span></div>`;
         
-        if (data.master.gpuStats) {
-          const s = data.master.gpuStats;
+        if (data.node0.gpuStats) {
+          const s = data.node0.gpuStats;
           html += '<div class="stats-row">';
           html += `<div class="stat-box"><div class="stat-label">GPU Util</div><div class="stat-val">${s.util}%</div></div>`;
           html += `<div class="stat-box"><div class="stat-label">VRAM</div><div class="stat-val">${(s.memUsed/1024).toFixed(1)}GB / ${(s.memTotal/1024).toFixed(1)}GB</div></div>`;
@@ -54,24 +54,24 @@
         
         html += '</div>';
 
-        // Slaves
-        html += `<h3>Slave Nodes (${data.slaves.length})</h3>`;
-        if (data.slaves.length === 0) {
-          html += '<p style="color: #888;">No slaves configured.</p>';
+        // Nodes
+        html += `<h3>Node Nodes (${data.nodes.length})</h3>`;
+        if (data.nodes.length === 0) {
+          html += '<p style="color: #888;">No nodes configured.</p>';
         } else {
-          data.slaves.forEach(slave => {
+          data.nodes.forEach(node => {
             html += '<div class="card" style="border-left: 4px solid #00BCD4;">';
-            html += `<h2 style="color: #00BCD4;">${slave.label || slave.id} <span class="badge ${slave.running ? 'running' : ''}">${slave.running ? 'Running' : 'Stopped'}</span></h2>`;
-            html += `<div class="info-row"><span>IP Address:</span> <span>${slave.ip || 'Unknown'}</span></div>`;
+            html += `<h2 style="color: #00BCD4;">${node.label || node.id} <span class="badge ${node.running ? 'running' : ''}">${node.running ? 'Running' : 'Stopped'}</span></h2>`;
+            html += `<div class="info-row"><span>IP Address:</span> <span>${node.ip || 'Unknown'}</span></div>`;
             
-            if (slave.gpuStats) {
-              const s = slave.gpuStats;
+            if (node.gpuStats) {
+              const s = node.gpuStats;
               html += '<div class="stats-row">';
               html += `<div class="stat-box"><div class="stat-label">GPU Util</div><div class="stat-val">${s.util}%</div></div>`;
               html += `<div class="stat-box"><div class="stat-label">VRAM</div><div class="stat-val">${(s.memUsed/1024).toFixed(1)}GB / ${(s.memTotal/1024).toFixed(1)}GB</div></div>`;
               html += `<div class="stat-box"><div class="stat-label">Power</div><div class="stat-val">${s.power}W</div></div>`;
               html += '</div>';
-            } else if (slave.running) {
+            } else if (node.running) {
                html += '<div class="info-row"><span style="color:#aaa; font-size:0.8em;">Waiting for stats...</span></div>';
             }
             
