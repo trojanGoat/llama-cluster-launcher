@@ -1655,7 +1655,8 @@ function initPresets() {
       masterRemoteHost: document.getElementById('masterRemoteHost').value,
       masterRemotePort: document.getElementById('masterRemotePort').value,
       masterRemoteUser: document.getElementById('masterRemoteUser').value,
-      masterRemotePass: document.getElementById('masterRemotePass').value
+      masterRemotePass: document.getElementById('masterRemotePass').value,
+      nodes: nodes.map(s => s.config)
     };
   }
 
@@ -1743,6 +1744,13 @@ function initPresets() {
     setIfExists('nParallel', cfg.nParallel);
     setIfExists('masterExtraFlags', cfg.masterExtraFlags);
     setIfExists('flashAttn', cfg.flashAttn);
+
+    if (cfg.nodes && Array.isArray(cfg.nodes)) {
+      nodes.length = 0;
+      document.getElementById('slaveList').innerHTML = '';
+      cfg.nodes.forEach(nodeCfg => addSlaveCard(nodeCfg));
+      document.getElementById('slaveEmpty').style.display = nodes.length ? 'none' : 'block';
+    }
 
     if (cfg.modelPath) updateModelChip(cfg.modelPath);
     if (cfg.ngl !== undefined) {
