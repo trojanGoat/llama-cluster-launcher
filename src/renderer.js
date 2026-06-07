@@ -132,7 +132,11 @@ function saveSetting(key, value) {
 }
 
 function saveAllSlaves() {
-  const configs = nodes.map(s => s.config);
+  const configs = nodes.map(s => {
+    const copy = { ...s.config };
+    delete copy.password;
+    return copy;
+  });
   saveSetting('nodes', configs);
 }
 
@@ -310,7 +314,7 @@ document.getElementById('masterBinPath').addEventListener('blur', updateMasterVe
   document.getElementById('masterLaunchBtn').addEventListener('click', handleMasterLaunch);
 
   // Execution Mode Listeners
-  const execFields = ['masterRemoteHost', 'masterRemotePort', 'masterRemoteUser', 'masterRemotePass'];
+  const execFields = ['masterRemoteHost', 'masterRemotePort', 'masterRemoteUser'];
   execFields.forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -1655,8 +1659,12 @@ function initPresets() {
       masterRemoteHost: document.getElementById('masterRemoteHost').value,
       masterRemotePort: document.getElementById('masterRemotePort').value,
       masterRemoteUser: document.getElementById('masterRemoteUser').value,
-      masterRemotePass: document.getElementById('masterRemotePass').value,
-      nodes: nodes.map(s => s.config)
+      masterRemotePass: '',
+      nodes: nodes.map(s => {
+        const copy = { ...s.config };
+        delete copy.password;
+        return copy;
+      })
     };
   }
 
