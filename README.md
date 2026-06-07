@@ -104,6 +104,14 @@ http://localhost:8080  (OpenAI-compatible API)
 | **electron-store** | AES-encrypted local settings persistence |
 | **Vanilla CSS** | Custom dark-theme design system |
 
+## ❤️ Support Me
+
+If this launcher helps you distribute your inference workloads, consider buying me a coffee! ☕
+
+[buymeacoffee.com/jrazon](https://www.buymeacoffee.com/jrazon)
+
+<img src="src/logos/qr-code.png" width="150" alt="Buy Me A Coffee QR Code">
+
 ## 📄 License
 
 MIT License — see [LICENSE](LICENSE).
