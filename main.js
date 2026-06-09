@@ -748,7 +748,18 @@ ipcMain.handle('server:toggle', (_, { enabled, port }) => {
       }
     });
     broadcastServer.listen(port, '0.0.0.0', () => {
-      console.log(`Broadcast server listening on 0.0.0.0:${port}`);
+      console.log(`\n=========================================`);
+      console.log(`Web Dashboard available on the network at:`);
+      const nets = os.networkInterfaces();
+      for (const name of Object.keys(nets)) {
+        for (const net of nets[name]) {
+          if (net.family === 'IPv4' && !net.internal) {
+            console.log(`  http://${net.address}:${port}`);
+          }
+        }
+      }
+      console.log(`Local: http://127.0.0.1:${port}`);
+      console.log(`=========================================\n`);
     });
   }
   return true;
