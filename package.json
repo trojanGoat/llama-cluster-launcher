@@ -5,15 +5,38 @@
   "main": "main.js",
   "scripts": {
     "start": "electron . --no-sandbox",
-    "dev": "electron . --no-sandbox"
+    "dev": "electron . --no-sandbox",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
   },
   "dependencies": {
     "electron-store": "^8.1.0",
     "ssh2": "^1.15.0"
   },
   "devDependencies": {
-    "electron": "^41.7.1"
+    "electron": "^41.7.1",
+    "electron-builder": "^26.15.3"
   },
-  "author": "Jorge Razon",
+  "build": {
+    "appId": "com.jorgerazon.llamaclusterlauncher",
+    "productName": "Llama Cluster Launcher",
+    "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
+    "mac": {
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "executableArgs": [
+        "--no-sandbox"
+      ]
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    }
+  },
+  "author": {
+    "name": "Jorge Razon",
+    "email": "jrazon@gmail.com"
+  },
   "license": "MIT"
 }

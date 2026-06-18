@@ -8,6 +8,9 @@ const http = require('http');
 const net = require('net');
 const os = require('os');
 
+app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('disable-gpu-sandbox');
+
 const SCREENSHOT_MODE = process.env.TAKE_SCREENSHOT === 'true';
 
 const store = new Store({
