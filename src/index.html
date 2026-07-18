@@ -323,124 +323,6 @@
           </div>
         </div>
 
-        <!-- System Preferences (collapsed by default) -->
-        <div class="form-section collapsed" id="section-preferences">
-          <div class="section-label-row collapse-header">
-            <h3 class="section-label">System Preferences</h3>
-            <span class="collapse-arrow">▾</span>
-          </div>
-          <div class="section-content">
-
-            <!-- Network settings -->
-            <div style="border-bottom: 1px dashed var(--border-subtle); padding-bottom: 12px; margin-bottom: 12px;">
-              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 10px 0;">Network Settings</h4>
-              <div class="fields-grid">
-                <div class="field-row">
-                  <label class="field-label" for="masterPort">
-                    Port
-                    <span class="help-tip" data-tip="The HTTP port llama-server listens on for API requests.">?</span>
-                  </label>
-                  <div class="port-row">
-                    <input type="number" id="masterPort" class="field-input" value="8080" min="1024" max="65535" />
-                    <span class="port-status" id="masterPortStatus" title="Port status"></span>
-                  </div>
-                </div>
-                <div class="field-row">
-                  <label class="field-label" for="masterHost">
-                    Bind Host
-                    <span class="help-tip" data-tip="Address to bind to. 0.0.0.0 accepts connections from any network interface.">?</span>
-                  </label>
-                  <input type="text" id="masterHost" class="field-input" value="0.0.0.0" />
-                </div>
-              </div>
-              <div class="field-row" style="margin-top: 10px;">
-                <label class="field-label" for="rpcAddresses">
-                  --rpc (node addresses)
-                  <span class="help-tip" data-tip="Comma-separated list of RPC node addresses (host:port). Auto-populated from your active node nodes.">?</span>
-                </label>
-                <input type="text" id="rpcAddresses" class="field-input mono" placeholder="Auto-filled from node nodes…" readonly />
-              </div>
-            </div>
-
-            <!-- Execution Mode -->
-            <div style="border-bottom: 1px dashed var(--border-subtle); padding-bottom: 12px; margin-bottom: 12px;">
-              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 10px 0;">Execution Mode</h4>
-              <div class="fields-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 10px;">
-                <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
-                  <input type="checkbox" id="soloModeEnable" class="field-checkbox" />
-                  <label class="field-label" for="soloModeEnable" style="margin-bottom: 0; cursor: pointer;">
-                    Solo Mode (Disable Nodes)
-                  </label>
-                </div>
-                <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
-                  <input type="checkbox" id="remoteMasterEnable" class="field-checkbox" />
-                  <label class="field-label" for="remoteMasterEnable" style="margin-bottom: 0; cursor: pointer;">
-                    Run Master Node Remotely
-                  </label>
-                </div>
-              </div>
-
-              <!-- Remote Node0 SSH Credentials -->
-              <div id="remoteMasterCreds" class="fields-grid" style="display: none; padding-top: 8px; margin-top: 8px;">
-                <div class="field-row">
-                  <label class="field-label" for="masterRemoteHost">SSH Host</label>
-                  <input type="text" id="masterRemoteHost" class="field-input mono" placeholder="192.168.1.50" />
-                </div>
-                <div class="field-row">
-                  <label class="field-label" for="masterRemotePort">SSH Port</label>
-                  <input type="number" id="masterRemotePort" class="field-input" value="22" min="1" max="65535" />
-                </div>
-                <div class="field-row">
-                  <label class="field-label" for="masterRemoteUser">Username</label>
-                  <input type="text" id="masterRemoteUser" class="field-input mono" placeholder="ubuntu" />
-                </div>
-                <div class="field-row">
-                  <label class="field-label" for="masterRemotePass">Password / Key Passphrase</label>
-                  <input type="password" id="masterRemotePass" class="field-input" placeholder="Optional if key-based" />
-                </div>
-              </div>
-            </div>
-
-            <!-- Broadcast Monitor -->
-            <div style="border-bottom: 1px dashed var(--border-subtle); padding-bottom: 12px; margin-bottom: 12px;">
-              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 10px 0;">Broadcast Monitor</h4>
-              <div class="fields-grid">
-                <div class="field-row" style="flex-direction: row; align-items: center; gap: 10px;">
-                  <input type="checkbox" id="broadcastEnable" class="field-checkbox" />
-                  <label class="field-label" for="broadcastEnable" style="margin-bottom: 0; cursor: pointer;">
-                    Enable Local Network Monitoring
-                  </label>
-                </div>
-                <div class="field-row">
-                  <label class="field-label" for="broadcastPort">
-                    Broadcast Port
-                    <span class="help-tip" data-tip="The HTTP port to serve the read-only dashboard on the local network.">?</span>
-                  </label>
-                  <select id="broadcastPort" class="field-input field-select">
-                    <option value="">Scanning for ports...</option>
-                  </select>
-                </div>
-              </div>
-              <div id="broadcastLinks" style="margin-top: 10px; font-size: 0.85em; color: var(--text-muted); display: none;"></div>
-            </div>
-
-            <!-- Desktop Integration -->
-            <div>
-              <h4 style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent-light); margin: 0 0 8px 0;">Desktop Integration</h4>
-              <p style="font-size: 0.85em; color: var(--text-muted); margin: 0 0 10px 0; line-height: 1.4;">
-                Create a desktop application shortcut (.desktop entry) to launch Llama Cluster Launcher directly from your applications menu.
-              </p>
-              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <button class="btn-launch" id="createShortcutBtn" style="padding: 6px 14px; font-size: 0.85em; margin: 0; background: linear-gradient(135deg, #8a2be2, #4a00e0); border: none; min-width: 190px; color: #fff;">
-                  ✨ Create Desktop Launcher
-                </button>
-                <span id="shortcutStatus" style="font-size: 0.85em; color: var(--text-muted);"></span>
-              </div>
-            </div>
-
-          </div> <!-- /.section-content -->
-        </div>
-
         <!-- Command preview -->
         <div class="form-section">
           <div class="section-label-row collapse-header">
@@ -551,7 +433,7 @@
     <div class="modal-header">
       <img src="logos/llama_cluster_logo_v001.png" alt="Llama Cluster Launcher Logo" class="about-logo">
       <h2>Llama Cluster Launcher</h2>
-      <p class="version">v1.0.2</p>
+      <p class="version">v1.0.5 beta</p>
     </div>
     <div class="modal-body">
       <p>A GUI launcher for <strong>llama.cpp</strong> clustered inference, enabling distributed model serving across a master node and SSH-connected worker nodes.</p>

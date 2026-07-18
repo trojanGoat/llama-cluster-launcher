@@ -1,6 +1,6 @@
 {
   "name": "llama-cluster-launcher",
-  "version": "1.0.2",
+  "version": "1.0.5",
   "description": "GUI launcher for llama.cpp clustered inference (node0 + SSH nodes)",
   "main": "main.js",
   "scripts": {
@@ -25,13 +25,19 @@
       "category": "public.app-category.developer-tools"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "executableArgs": [
         "--no-sandbox"
       ]
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     }
   },
   "author": {
