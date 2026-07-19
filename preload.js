@@ -9,8 +9,9 @@ contextBridge.exposeInMainWorld('api', {
   // Networking
   getLocalIPs: () => ipcRenderer.invoke('server:getLocalIPs'),
 
-  // File dialog
+  // File checks & dialog
   openFile: (options) => ipcRenderer.invoke('dialog:openFile', options),
+  checkLocalFile: (p) => ipcRenderer.invoke('file:checkExists', p),
 
   // Port checks (read-only)
   checkPortLocal: (port) => ipcRenderer.invoke('port:checkLocal', port),

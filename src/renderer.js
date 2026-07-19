@@ -403,11 +403,26 @@ async function handleMasterLaunch() {
     return;
   }
 
+  const isRemote = document.getElementById('remoteMasterEnable').checked;
+  
+  // Validate local paths if not remote
+  if (!isRemote) {
+    const binPath = document.getElementById('masterBinPath').value;
+    const modelPath = document.getElementById('modelPath').value;
+    if (!(await window.api.checkLocalFile(binPath))) {
+      alert(`Invalid binary path: ${binPath}\nFile does not exist.`);
+      return;
+    }
+    if (!(await window.api.checkLocalFile(modelPath))) {
+      alert(`Invalid model path: ${modelPath}\nFile does not exist.`);
+      return;
+    }
+  }
+
   // Port check before launch — read-only
   const portEl = document.getElementById('masterPort');
   const port = parseInt(portEl.value);
   
-  const isRemote = document.getElementById('remoteMasterEnable').checked;
   let portCheck;
   if (isRemote) {
     const host = document.getElementById('masterRemoteHost').value.trim();
@@ -1103,21 +1118,28 @@ function renderRpcField() {
 // ─── GPU Stats Polling ────────────────────────────────────────────────────────
 let statsInterval = null;
 
+let isPolling = false;
 function startStatsPolling() {
   if (statsInterval) clearInterval(statsInterval);
   statsInterval = setInterval(async () => {
-    // Node0
-    if (masterRunning) {
-      const stats = await window.api.gpuGetStatsLocal();
-      if (stats.success) updateGpuUI('node0', stats);
-    }
-
-    // Nodes
-    for (const node of nodes) {
-      if (node.running) {
-        const stats = await window.api.gpuGetStatsRemote({ slaveId: node.id });
-        if (stats.success) updateGpuUI(node.id, stats);
+    if (isPolling) return;
+    isPolling = true;
+    try {
+      // Node0
+      if (masterRunning) {
+        const stats = await window.api.gpuGetStatsLocal();
+        if (stats.success) updateGpuUI('node0', stats);
       }
+
+      // Nodes
+      for (const node of nodes) {
+        if (node.running) {
+          const stats = await window.api.gpuGetStatsRemote({ slaveId: node.id });
+          if (stats.success) updateGpuUI(node.id, stats);
+        }
+      }
+    } finally {
+      isPolling = false;
     }
   }, 2500);
 }
@@ -1285,19 +1307,22 @@ function renderTokenChart() {
 }
 
 // Keep the token chart updated every minute
-setInterval(initTokenChart, 60000);
+const tokenChartInterval = setInterval(initTokenChart, 60000);
+window.addEventListener('beforeunload', () => clearInterval(tokenChartInterval));
 
 document.addEventListener('DOMContentLoaded', () => {
   const chartWrap = document.querySelector('.token-chart-wrap');
   if (chartWrap) {
     chartWrap.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      // scale by 6 hours per scroll tick
-      const dir = Math.sign(e.deltaY);
-      chartVisibleHours += dir * 6;
-      if (chartVisibleHours < 6) chartVisibleHours = 6;
-      if (chartVisibleHours > 168) chartVisibleHours = 168; // 7 days max
-      renderTokenChart();
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        // scale by 6 hours per scroll tick
+        const dir = Math.sign(e.deltaY);
+        chartVisibleHours += dir * 6;
+        if (chartVisibleHours < 6) chartVisibleHours = 6;
+        if (chartVisibleHours > 168) chartVisibleHours = 168; // 7 days max
+        renderTokenChart();
+      }
     }, { passive: false });
   }
 });
@@ -1589,7 +1614,7 @@ function setupPreferences() {
         // Show desktop notification
         new Notification('Llama Cluster Launcher', {
           body: 'Launcher created! Search "Llama Cluster Launcher" in your applications to pin it.',
-          icon: 'logos/llama_cluster_icon_v001.png'
+          icon: window.location.href.replace('index.html', 'logos/llama_cluster_icon_v001.png')
         });
       } else {
         createShortcutBtn.disabled = false;

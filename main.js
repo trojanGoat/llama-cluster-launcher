@@ -8,13 +8,46 @@ const http = require('http');
 const net = require('net');
 const os = require('os');
 
-app.commandLine.appendSwitch('no-sandbox');
-app.commandLine.appendSwitch('disable-gpu-sandbox');
+if (process.geteuid && process.geteuid() === 0) {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-gpu-sandbox');
+}
 
 const SCREENSHOT_MODE = process.env.TAKE_SCREENSHOT === 'true';
 
-const store = new Store({
-  encryptionKey: 'llama-launcher-key-v1'
+let store;
+app.whenReady().then(() => {
+  const { safeStorage } = require('electron');
+  const crypto = require('crypto');
+  let key = 'llama-launcher-key-v1'; // fallback
+  if (safeStorage.isEncryptionAvailable()) {
+    // we use a plain text file to store the encrypted encryption key
+    const fs = require('fs');
+    const path = require('path');
+    const keyPath = path.join(app.getPath('userData'), 'secure_key.enc');
+    if (fs.existsSync(keyPath)) {
+      try {
+        key = safeStorage.decryptString(fs.readFileSync(keyPath));
+      } catch(e) {}
+    } else {
+      key = crypto.randomBytes(32).toString('hex');
+      fs.writeFileSync(keyPath, safeStorage.encryptString(key));
+    }
+  }
+  try {
+    store = new Store({ encryptionKey: key });
+  } catch (e) {
+    if (e.name === 'SyntaxError') {
+      const fs = require('fs');
+      const path = require('path');
+      const configPath = path.join(app.getPath('userData'), 'config.json');
+      if (fs.existsSync(configPath)) {
+        fs.unlinkSync(configPath);
+        store = new Store({ encryptionKey: key });
+      }
+    }
+  }
+  createWindow();
 });
 
 // ─── Mock data for screenshot mode ───────────────────────────────────────────
@@ -32,13 +65,13 @@ const SCREENSHOT_MOCK_STATE = {
   masterExtraFlags: '',
   nodes: [
     {
-      id: 'slave_1', label: 'GPU Node 1', ip: '192.168.8.101',
-      username: 'ubuntu', password: '',
+      id: 'slave_1', label: 'GPU Node 1', ip: '127.0.0.1',
+      username: 'user', password: '',
       binPath: '~/llama.cpp/build/bin/rpc-server', port: '52396', extraFlags: ''
     },
     {
-      id: 'slave_2', label: 'GPU Node 2', ip: '192.168.8.102',
-      username: 'ubuntu', password: '',
+      id: 'slave_2', label: 'GPU Node 2', ip: '127.0.0.1',
+      username: 'user', password: '',
       binPath: '~/llama.cpp/build/bin/rpc-server', port: '52396', extraFlags: ''
     }
   ]
@@ -117,7 +150,6 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
@@ -131,22 +163,21 @@ function cleanupAllProcesses() {
   }
   // Kill remote nodes: close SSH streams (sends SIGHUP to remote process)
   // Also attempt an explicit pkill for reliability
-  Object.entries(runningProcesses.nodes).forEach(([id, entry]) => {
+  const nodesCopy = Object.values(runningProcesses.nodes);
+  runningProcesses.nodes = {};
+  nodesCopy.forEach((entry) => {
     if (!entry) return;
     try {
-      // Try to send a kill to the remote rpc-server before closing
-      const killConn = new SSHClient();
-      const creds = entry.creds; // stored at launch time
-      if (creds) {
-        killConn.on('ready', () => {
-          killConn.exec('pkill -f rpc-server', () => { killConn.end(); });
-        }).on('error', () => {}).connect(creds);
+      if (entry.conn) {
+        entry.conn.exec('pkill -f rpc-server', () => {
+          entry.stream?.close();
+          entry.conn?.end();
+        });
+      } else {
+        entry.stream?.close();
       }
-      entry.stream?.close();
-      entry.conn?.end();
     } catch (e) {}
   });
-  runningProcesses.nodes = {};
 }
 
 app.on('will-quit', () => {
@@ -156,7 +187,12 @@ app.on('will-quit', () => {
 // ─── Settings persistence ───────────────────────────────────────────────────
 ipcMain.handle('store:get', (_, key) => store.get(key));
 ipcMain.handle('store:set', (_, key, value) => { if (!SCREENSHOT_MODE) store.set(key, value); });
-ipcMain.handle('store:getAll', () => SCREENSHOT_MODE ? SCREENSHOT_MOCK_STATE : store.store);
+ipcMain.handle('store:getAll', () => {
+  if (SCREENSHOT_MODE) return SCREENSHOT_MOCK_STATE;
+  const data = { ...store.store };
+  delete data._meta;
+  return data;
+});
 
 // ─── Screenshot capture ──────────────────────────────────────────────────────
 ipcMain.handle('screenshot:capture', async () => {
@@ -207,6 +243,18 @@ ipcMain.handle('tokens:log', (_, tokenData) => {
     const line = `${dateStr} ${timeStr}, ${type}, ${count}\n`;
     
     fs.appendFileSync(logFile, line, 'utf8');
+    
+    // Rotate logs: keep only last 6 months
+    fs.readdir(logsDir, (err, files) => {
+      if (!err) {
+        const usageFiles = files.filter(f => f.startsWith('token_usage_')).sort();
+        if (usageFiles.length > 6) {
+          const toDelete = usageFiles.slice(0, usageFiles.length - 6);
+          toDelete.forEach(f => fs.unlink(path.join(logsDir, f), () => {}));
+        }
+      }
+    });
+    
     return { success: true };
   } catch (err) {
     console.error('Error logging tokens:', err);
@@ -214,14 +262,18 @@ ipcMain.handle('tokens:log', (_, tokenData) => {
   }
 });
 
-ipcMain.handle('app:getVersionInfo', () => {
-  try {
-    const pkg = require('./package.json');
-    const branch = require('child_process').execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
-    return { version: pkg.version, branch: branch };
-  } catch(e) {
-    return { version: 'unknown', branch: 'unknown' };
-  }
+ipcMain.handle('app:getVersionInfo', async () => {
+  return new Promise((resolve) => {
+    try {
+      const pkg = require('./package.json');
+      require('child_process').exec('git rev-parse --abbrev-ref HEAD', (err, stdout) => {
+        const branch = err ? 'unknown' : stdout.toString().trim();
+        resolve({ version: pkg.version, branch: branch });
+      });
+    } catch(e) {
+      resolve({ version: 'unknown', branch: 'unknown' });
+    }
+  });
 });
 
 ipcMain.handle('tokens:getHistory', () => {
@@ -314,6 +366,14 @@ ipcMain.handle('dialog:openFile', async (_, options) => {
   return result.canceled ? null : result.filePaths[0];
 });
 
+ipcMain.handle('file:checkExists', (_, p) => {
+  try {
+    return require('fs').existsSync(p);
+  } catch(e) {
+    return false;
+  }
+});
+
 // ─── Port check (LOCAL) ──────────────────────────────────────────────────────
 // READ-ONLY — uses ss to check if a port is in use. Does NOT interact with any running services.
 ipcMain.handle('port:checkLocal', (_, port) => {
@@ -334,7 +394,9 @@ ipcMain.handle('port:checkLocal', (_, port) => {
 
 ipcMain.handle('port:killLocal', (_, pid) => {
   return new Promise((resolve) => {
-    exec(`kill -9 ${pid}`, (err) => {
+    const safePid = parseInt(pid, 10);
+    if (isNaN(safePid)) return resolve({ success: false, error: 'Invalid PID' });
+    require('child_process').execFile('kill', ['-9', String(safePid)], (err) => {
       resolve({ success: !err });
     });
   });
@@ -391,13 +453,16 @@ ipcMain.handle('port:checkRemote', (_, { host, port, username, password }) => {
 
 ipcMain.handle('port:killRemote', (_, { host, pid, username, password }) => {
   return new Promise((resolve) => {
+    const safePid = parseInt(pid, 10);
+    if (isNaN(safePid)) return resolve({ success: false, error: 'Invalid PID' });
     const conn = new SSHClient();
     conn.on('ready', () => {
-      conn.exec(`kill -9 ${pid}`, (err, stream) => {
+      const cmd = `if [ "$(cat /proc/${safePid}/cmdline 2>/dev/null | grep -i -c llama)" -gt 0 ] || [ "$(cat /proc/${safePid}/comm 2>/dev/null | grep -i -c llama)" -gt 0 ]; then kill -9 ${safePid}; else echo "PID not llama"; exit 1; fi`;
+      conn.exec(cmd, (err, stream) => {
         if (err) { conn.end(); return resolve({ success: false, error: err.message }); }
-        stream.on('close', () => {
+        stream.on('close', (code) => {
           conn.end();
-          resolve({ success: true });
+          resolve({ success: code === 0 });
         });
       });
     }).on('error', (err) => {
@@ -413,9 +478,9 @@ ipcMain.handle('node0:launch', (_, { command, cwd, remoteOpts }) => {
   }
 
   if (remoteOpts && remoteOpts.enabled) {
-    // Escape single quotes in command for safe bash -lc wrapping
-    const safeCmd = command.replace(/'/g, "'\\''");
-    const shellWrapped = `bash -lc '${safeCmd}'`;
+    // Base64 encode command for safe remote execution
+    const b64Cmd = Buffer.from(command).toString('base64');
+    const shellWrapped = `echo ${b64Cmd} | base64 -d | bash -l`;
 
     const { host, port, username, password } = remoteOpts;
     const creds = { host, port: parseInt(port, 10) || 22, username, password, readyTimeout: 10000 };
@@ -520,9 +585,9 @@ ipcMain.handle('node:launch', (_, { slaveId, host, username, password, command }
     return { success: false, error: 'Node is already running.' };
   }
 
-  // Escape single quotes in command for safe bash -lc wrapping
-  const safeCmd = command.replace(/'/g, "'\\''")
-  const shellWrapped = `bash -lc '${safeCmd}'`;
+  // Base64 encode command for safe remote execution
+  const b64Cmd = Buffer.from(command).toString('base64');
+  const shellWrapped = `echo ${b64Cmd} | base64 -d | bash -l`;
 
   // Store SSH credentials so we can send a kill command on app-quit
   const creds = { host, port: 22, username, password, readyTimeout: 10000 };
@@ -730,7 +795,7 @@ ipcMain.handle('server:toggle', (_, { enabled, port }) => {
   if (enabled && port) {
     broadcastServer = http.createServer((req, res) => {
       // CORS headers
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Origin', 'http://127.0.0.1');
       if (req.url === '/api/status') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(currentClusterState));
