@@ -1,6 +1,6 @@
 {
   "name": "llama-cluster-launcher",
-  "version": "1.0.6",
+  "version": "1.1.0",
   "description": "GUI launcher for llama.cpp clustered inference (node0 + SSH nodes)",
   "main": "main.js",
   "scripts": {
@@ -18,6 +18,10 @@
     "electron-builder": "^26.15.3"
   },
   "build": {
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
+    },
     "appId": "com.jorgerazon.llamaclusterlauncher",
     "productName": "Llama Cluster Launcher",
     "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
