@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+trap 'echo "❌ Error: Script failed unexpectedly on line $LINENO. (Exit code: $?)"' ERR
 
 echo "=========================================="
 echo "      Interactive Release Creator         "
@@ -51,7 +52,8 @@ fi
 TAG="v$VERSION"
 
 # 3. Generate starting release notes
-git fetch --tags --quiet
+echo "🔄 Fetching latest tags from GitHub..."
+git fetch --tags --force 2>/dev/null || echo "⚠️ Warning: Failed to fetch tags, proceeding with local tags."
 PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
 NOTES_FILE=$(mktemp)
