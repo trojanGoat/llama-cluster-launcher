@@ -39,8 +39,12 @@ else
     npm version "$VERSION" --no-git-tag-version
     echo "✅ package.json updated to version $VERSION"
     
+    # Update hardcoded version in HTML
+    sed -i "s/<p class=\"version\">v.* beta<\/p>/<p class=\"version\">v$VERSION beta<\/p>/" src/index.html
+    echo "✅ src/index.html updated to version $VERSION"
+    
     # Commit the version bump
-    git add package.json package-lock.json 2>/dev/null || true
+    git add package.json package-lock.json src/index.html 2>/dev/null || true
     git commit -m "chore: bump version to v$VERSION" || true
 fi
 
