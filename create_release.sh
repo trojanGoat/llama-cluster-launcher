@@ -84,7 +84,9 @@ git push origin HEAD
 echo ""
 echo "🚀 Creating GitHub release $TAG..."
 # This command automatically creates the tag on GitHub and attaches the notes
-gh release create "$TAG" --title "Release $TAG" --notes-file "$NOTES_FILE"
+# We use --target to ensure the release is built from the current branch (like beta) instead of defaulting to main.
+CURRENT_BRANCH=$(git branch --show-current)
+gh release create "$TAG" --target "$CURRENT_BRANCH" --title "Release $TAG" --notes-file "$NOTES_FILE"
 
 # 7. Cleanup
 rm "$NOTES_FILE"
