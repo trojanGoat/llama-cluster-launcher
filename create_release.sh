@@ -28,6 +28,7 @@ fi
 CURRENT_VERSION=$(node -p "require('./package.json').version")
 echo "🏷️  Current version in package.json: v$CURRENT_VERSION"
 
+CURRENT_BRANCH=$(git branch --show-current)
 read -p "Enter the NEW version (e.g., 1.0.7) or press ENTER to keep current [v$CURRENT_VERSION]: " NEW_VERSION_INPUT
 
 if [ -z "$NEW_VERSION_INPUT" ]; then
@@ -36,12 +37,17 @@ else
     # Strip leading 'v' if user typed it
     VERSION="${NEW_VERSION_INPUT#v}"
     
+    # Auto-append suffix based on branch if not already present
+    if [ "$CURRENT_BRANCH" == "beta" ] && [[ ! "$VERSION" == *-beta* ]]; then
+        VERSION="${VERSION}-beta"
+    fi
+    
     # Update package.json version
     npm version "$VERSION" --no-git-tag-version
     echo "✅ package.json updated to version $VERSION"
     
     # Update hardcoded version in HTML
-    sed -i "s/<p class=\"version\">v.* beta<\/p>/<p class=\"version\">v$VERSION beta<\/p>/" src/index.html
+    sed -i -E "s/<p class=\"version\">.*<\/p>/<p class=\"version\">v$VERSION<\/p>/" src/index.html
     echo "✅ src/index.html updated to version $VERSION"
     
     # Commit the version bump
